@@ -23,6 +23,7 @@ type client struct {
 	resp  map[string]chan *msg
 	diags map[string][]any
 	dch   chan string
+	shown []string // window/showMessage texts
 }
 
 func goplsPath(t *testing.T) string {
@@ -100,6 +101,14 @@ func (c *client) loop() {
 			c.diags[p.URI] = p.Diagnostics
 			c.mu.Unlock()
 			c.dch <- p.URI
+		case m.Method == "window/showMessage":
+			var p struct {
+				Message string `json:"message"`
+			}
+			_ = json.Unmarshal(m.Params, &p)
+			c.mu.Lock()
+			c.shown = append(c.shown, p.Message)
+			c.mu.Unlock()
 		}
 	}
 }
@@ -351,6 +360,16 @@ func TestGoxls(t *testing.T) {
 				t.Fatalf("generated file not updated:\n%s", b)
 			}
 			time.Sleep(50 * time.Millisecond)
+		}
+	})
+
+	t.Run("no generated file warning", func(t *testing.T) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		for _, m := range c.shown {
+			if strings.Contains(m, "generated file") {
+				t.Errorf("warning reached client: %q", m)
+			}
 		}
 	})
 }
