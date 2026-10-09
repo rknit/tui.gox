@@ -4,6 +4,7 @@
 //
 //	goxc [packages]          generate foo_gox.go next to every foo.gox
 //	goxc run [package] [args] generate, then go run the package
+//	goxc fmt [-w|-l|-d] [paths]  format .gox files (gofmt for .gox)
 //
 // Packages are directories; a trailing /... recurses. Default is ".".
 // After writing files goxc runs `go mod tidy` in the enclosing module so new
@@ -31,7 +32,7 @@ import (
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: goxc [-check] [packages]\n       goxc run [package] [args...]")
+		fmt.Fprintln(os.Stderr, "usage: goxc [-check] [packages]\n       goxc run [package] [args...]\n       goxc fmt [-w|-l|-d] [paths...]")
 		flag.PrintDefaults()
 	}
 	check := flag.Bool("check", false, "report files whose generated output is stale, without writing")
@@ -40,6 +41,12 @@ func main() {
 	flag.Parse()
 	args := flag.Args()
 
+	if len(args) > 0 && args[0] == "fmt" {
+		if err := runFmt(args[1:]); err != nil {
+			fail(err)
+		}
+		return
+	}
 	if len(args) > 0 && args[0] == "run" {
 		pkg := "."
 		rest := args[1:]

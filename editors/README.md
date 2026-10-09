@@ -12,6 +12,7 @@ behind the scenes:
 ```sh
 go install golang.org/x/tools/gopls@latest
 go install github.com/rknit/tui.gox/cmd/goxls@main
+go install github.com/rknit/tui.gox/cmd/goxc@main   # for `goxc fmt` (optional)
 ```
 
 ## Features
@@ -30,7 +31,10 @@ go install github.com/rknit/tui.gox/cmd/goxls@main
 - **Generate on save:** `foo_gox.go` is rewritten when `foo.gox` is saved, so `go build` and
   `go run` work without running `goxc`. Set `generateOnSave: false` to turn this off.
 
-**Not supported for `.gox` files:** formatting and semantic tokens. Syntax highlighting comes
+- **Formatting:** `textDocument/formatting` formats the whole document, the same way as
+  `goxc fmt`. If the document has errors, the request fails with the error message.
+
+**Not supported for `.gox` files:** range formatting and semantic tokens. Syntax highlighting comes
 from the [tree-sitter grammar](tree-sitter-gox).
 
 ### Options
@@ -73,6 +77,19 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim) or LazyVim:
       -- capabilities = require("blink.cmp").get_lsp_capabilities(),
     })
   end,
+}
+```
+
+Formatting works through `vim.lsp.buf.format()`. With conform.nvim (LazyVim's formatter), either
+let it fall back to the LSP, or run `goxc fmt` directly:
+
+```lua
+{
+  "stevearc/conform.nvim",
+  opts = {
+    formatters_by_ft = { gox = { "goxfmt" } }, -- or { gox = {} } with lsp_format = "fallback"
+    formatters = { goxfmt = { command = "goxc", args = { "fmt" }, stdin = true } },
+  },
 }
 ```
 

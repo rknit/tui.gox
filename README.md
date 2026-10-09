@@ -40,6 +40,7 @@ Write `.gox` files (ordinary Go plus XML expressions), then compile them:
 goxc ./...          # writes foo_gox.go next to every foo.gox
 goxc run .          # generate, then go run the package
 goxc -check ./...   # fail if generated files are stale (CI)
+goxc fmt -w ./...   # format .gox files
 ```
 
 You don't need to import the runtime in `.gox` files. `gox.UseState`, `gox.Node` and elements
@@ -59,6 +60,15 @@ package main
 //go:generate go run github.com/rknit/tui.gox/cmd/goxc .
 ```
 
+`goxc fmt` is gofmt for `.gox` files: `goxc fmt -w ./...` rewrites files in place, `-l` lists
+unformatted files, `-d` shows diffs, and with no arguments it formats stdin.
+
+- **Go code:** formatted by gofmt.
+- **Elements:** re-indented, with normalized attribute spacing. `<x></x>` becomes `<x />`.
+- **Line breaks:** the ones you chose are kept, like gofmt. This preserves JSX whitespace
+  semantics.
+- **Safety:** if formatting would change the compiled program, `goxc fmt` refuses instead.
+
 Generated files keep the `.gox` line numbers and start with a `//line` directive, so compiler
 errors point at the `.gox` source:
 
@@ -73,6 +83,7 @@ main.gox:8: cannot use "oops" (untyped string constant) as int value in struct l
 - Diagnostics at `.gox` positions.
 - Hover, go-to-definition, references and rename, including on tag and attribute names.
 - Go completion, plus completion of tag and attribute names.
+- Formatting (same as `goxc fmt`).
 - Generate on save.
 
 It works with any LSP client. A Neovim plugin (filetype, tree-sitter highlighting, LSP setup), a tree-sitter grammar, and

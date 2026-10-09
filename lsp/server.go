@@ -237,6 +237,9 @@ func (s *server) handleClient(m *msg) error {
 	if goxURI != "" && strings.HasSuffix(uriToPath(goxURI), ".gox") {
 		if m.isRequest() {
 			if res, handled := s.goxRequest(m, goxURI, params); handled {
+				if e, ok := res.(rpcError); ok {
+					return s.client.write(&msg{ID: m.ID, Error: mustJSON(e)})
+				}
 				return s.reply(m.ID, res)
 			}
 		}
@@ -267,7 +270,12 @@ func (s *server) goxRequest(m *msg, uri string, params any) (any, bool) {
 	valid := d != nil && d.valid()
 	s.mu.Unlock()
 	switch m.Method {
-	case "textDocument/formatting", "textDocument/rangeFormatting", "textDocument/onTypeFormatting",
+	case "textDocument/formatting":
+		if d == nil {
+			return nil, true
+		}
+		return s.format(d), true
+	case "textDocument/rangeFormatting", "textDocument/onTypeFormatting",
 		"textDocument/semanticTokens/full", "textDocument/semanticTokens/range", "textDocument/semanticTokens/full/delta",
 		"textDocument/foldingRange", "textDocument/codeLens", "textDocument/documentLink":
 		return nil, true
@@ -606,4 +614,26 @@ func textDocumentURI(params any) string {
 	td, _ := p["textDocument"].(map[string]any)
 	uri, _ := td["uri"].(string)
 	return uri
+}
+
+type rpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// format formats a .gox document, returning one edit replacing the whole
+// text (or no edits when it is already formatted).
+func (s *server) format(d *doc) any {
+	s.mu.Lock()
+	src := d.src
+	s.mu.Unlock()
+	out, err := transpile.Format([]byte(src.s))
+	if err != nil {
+		return rpcError{Code: -32603, Message: err.Error()}
+	}
+	if string(out) == src.s {
+		return []any{}
+	}
+	l, c := src.position(len(src.s))
+	return []any{map[string]any{"range": rng(0, 0, l, c), "newText": string(out)}}
 }

@@ -276,6 +276,22 @@ func TestGoxls(t *testing.T) {
 		}
 	})
 
+	t.Run("formatting", func(t *testing.T) {
+		messy := strings.Replace(appSrc, "<box padding={1}>", "<box   padding={ 1 }  >", 1)
+		c.notify("textDocument/didChange", map[string]any{"textDocument": map[string]any{"uri": uri, "version": 10}, "contentChanges": []any{map[string]any{"text": messy}}})
+		res := c.call("textDocument/formatting", map[string]any{"textDocument": map[string]any{"uri": uri}, "options": map[string]any{"tabSize": 4, "insertSpaces": false}})
+		var edits []struct {
+			NewText string `json:"newText"`
+		}
+		if err := json.Unmarshal(res, &edits); err != nil || len(edits) != 1 || edits[0].NewText != appSrc {
+			t.Errorf("formatting: %s", res)
+		}
+		c.notify("textDocument/didChange", map[string]any{"textDocument": map[string]any{"uri": uri, "version": 11}, "contentChanges": []any{map[string]any{"text": appSrc}}})
+		if res := c.call("textDocument/formatting", map[string]any{"textDocument": map[string]any{"uri": uri}, "options": map[string]any{}}); string(res) != "[]" {
+			t.Errorf("formatting formatted doc: %s", res)
+		}
+	})
+
 	t.Run("rename", func(t *testing.T) {
 		res := c.call("textDocument/rename", map[string]any{"textDocument": map[string]any{"uri": uri}, "position": pos(appSrc, "name :=", 0), "newName": "who"})
 		s := string(res)
