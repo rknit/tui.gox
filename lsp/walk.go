@@ -26,6 +26,11 @@ type walker struct {
 func (w *walker) walk(v any, ctx string) any {
 	switch x := v.(type) {
 	case []any:
+		if w.dir == toSrc && isTextEdits(x) {
+			if out, ok := w.importEdits(x, ctx); ok {
+				return out
+			}
+		}
 		for i := range x {
 			x[i] = w.walk(x[i], ctx)
 		}
