@@ -1,2 +1,5 @@
 /goxc
 *.test
+/editors/nvim/parser/
+/editors/tree-sitter-gox/node_modules/
+/editors/tree-sitter-gox/build/

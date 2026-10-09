@@ -1,0 +1,21 @@
+{
+  "name": "tree-sitter-gox",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for .gox (Go with XML elements)",
+  "license": "MIT",
+  "repository": "https://github.com/rknit/tui.gox",
+  "keywords": [
+    "tree-sitter",
+    "gox",
+    "go",
+    "tui"
+  ],
+  "devDependencies": {
+    "tree-sitter-cli": "0.25.10",
+    "tree-sitter-go": "0.25.0"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate --abi 14",
+    "test": "tree-sitter test"
+  }
+}

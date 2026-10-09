@@ -1,0 +1,248 @@
+============================================================
+Self-closing element with attributes
+============================================================
+
+package p
+
+var _ = <box padding={1} border="rounded" hidden on-press={f} />
+
+------------------------------------------------------------
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (var_declaration
+    (var_spec
+      (identifier)
+      (expression_list
+        (self_closing_element
+          (tag_name)
+          (attribute
+            (attribute_name)
+            (expression_container
+              (int_literal)))
+          (attribute
+            (attribute_name)
+            (attribute_string))
+          (attribute
+            (attribute_name))
+          (attribute
+            (attribute_name)
+            (expression_container
+              (identifier))))))))
+
+============================================================
+Element with text, expression and nested element
+============================================================
+
+package p
+
+var _ = <text>Count: <span bold>{n}</span></text>
+
+------------------------------------------------------------
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (var_declaration
+    (var_spec
+      (identifier)
+      (expression_list
+        (element
+          (start_tag
+            (tag_name))
+          (text)
+          (element
+            (start_tag
+              (tag_name)
+              (attribute
+                (attribute_name)))
+            (expression_container
+              (identifier))
+            (end_tag
+              (tag_name)))
+          (end_tag
+            (tag_name)))))))
+
+============================================================
+Component, qualified and generic tags
+============================================================
+
+package p
+
+var _ = <ui.Card><List[int] items={xs} /></ui.Card>
+
+------------------------------------------------------------
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (var_declaration
+    (var_spec
+      (identifier)
+      (expression_list
+        (element
+          (start_tag
+            (tag_name))
+          (self_closing_element
+            (tag_name)
+            (type_arguments
+              (type_elem
+                (type_identifier)))
+            (attribute
+              (attribute_name)
+              (expression_container
+                (identifier))))
+          (end_tag
+            (tag_name)))))))
+
+============================================================
+Fragment and comment child
+============================================================
+
+package p
+
+var _ = <>a{/* c */}<br /></>
+
+------------------------------------------------------------
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (var_declaration
+    (var_spec
+      (identifier)
+      (expression_list
+        (fragment
+          (text)
+          (expression_container
+            (comment))
+          (self_closing_element
+            (tag_name)))))))
+
+============================================================
+Spread attribute and element-valued attribute
+============================================================
+
+package p
+
+var _ = <show {...p} fallback={<text>no</text>}>yes</show>
+
+------------------------------------------------------------
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (var_declaration
+    (var_spec
+      (identifier)
+      (expression_list
+        (element
+          (start_tag
+            (tag_name)
+            (spread_attribute
+              (identifier))
+            (attribute
+              (attribute_name)
+              (expression_container
+                (element
+                  (start_tag
+                    (tag_name))
+                  (text)
+                  (end_tag
+                    (tag_name))))))
+          (text)
+          (end_tag
+            (tag_name)))))))
+
+============================================================
+Element in return and closure
+============================================================
+
+package p
+
+func f() gox.Node {
+	return (
+		<box>{gox.Map(xs, func(x int, _ int) gox.Node { return <text key={x}>{x}</text> })}</box>
+	)
+}
+
+------------------------------------------------------------
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (function_declaration
+    (identifier)
+    (parameter_list)
+    (qualified_type
+      (package_identifier)
+      (type_identifier))
+    (block
+      (statement_list
+        (return_statement
+          (expression_list
+            (parenthesized_expression
+              (element
+                (start_tag
+                  (tag_name))
+                (expression_container
+                  (call_expression
+                    (selector_expression
+                      (identifier)
+                      (field_identifier))
+                    (argument_list
+                      (identifier)
+                      (func_literal
+                        (parameter_list
+                          (parameter_declaration
+                            (identifier)
+                            (type_identifier))
+                          (parameter_declaration
+                            (identifier)
+                            (type_identifier)))
+                        (qualified_type
+                          (package_identifier)
+                          (type_identifier))
+                        (block
+                          (statement_list
+                            (return_statement
+                              (expression_list
+                                (element
+                                  (start_tag
+                                    (tag_name)
+                                    (attribute
+                                      (attribute_name)
+                                      (expression_container
+                                        (identifier))))
+                                  (expression_container
+                                    (identifier))
+                                  (end_tag
+                                    (tag_name)))))))))))
+                (end_tag
+                  (tag_name))))))))))
+
+============================================================
+Comparison is not an element
+============================================================
+
+package p
+
+var _ = a < b && c<d
+
+------------------------------------------------------------
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (var_declaration
+    (var_spec
+      (identifier)
+      (expression_list
+        (binary_expression
+          (binary_expression
+            (identifier)
+            (identifier))
+          (binary_expression
+            (identifier)
+            (identifier)))))))

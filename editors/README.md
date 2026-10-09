@@ -30,8 +30,8 @@ go install github.com/rknit/tui.gox/cmd/goxls@main
 - **Generate on save:** `foo_gox.go` is rewritten when `foo.gox` is saved, so `go build` and
   `go run` work without running `goxc`. Set `generateOnSave: false` to turn this off.
 
-**Not supported for `.gox` files:** formatting and semantic tokens. For syntax highlighting, use
-the bundled Vim syntax or your editor's Go highlighting.
+**Not supported for `.gox` files:** formatting and semantic tokens. Syntax highlighting comes
+from the [tree-sitter grammar](tree-sitter-gox).
 
 ### Options
 
@@ -49,39 +49,62 @@ Any other initialization options and `settings` are passed to gopls.
 The `editors/nvim` directory is a Neovim plugin. It provides:
 
 - `.gox` filetype detection.
-- Syntax highlighting that layers tags and attributes on top of Vim's Go syntax.
+- Tree-sitter highlighting.
+- A fallback regex syntax.
 - An ftplugin.
-- An LSP setup.
+- The LSP setup.
 
-With [lazy.nvim](https://github.com/folke/lazy.nvim):
+With [lazy.nvim](https://github.com/folke/lazy.nvim) or LazyVim:
 
 ```lua
 {
   "rknit/tui.gox",
+  -- Required when lazy-loading is the default: Neovim only knows the "gox"
+  -- filetype after this plugin loads, so `ft = "gox"` can never trigger it.
+  -- lazy = false also works.
+  event = { "BufReadPre *.gox", "BufNewFile *.gox" },
   config = function(plugin)
     vim.opt.rtp:append(plugin.dir .. "/editors/nvim")
     require("goxls").setup({
       -- cmd = { "goxls", "-gopls", "/path/to/gopls" },
       -- generate_on_save = true,
-      -- on_attach = function(client, bufnr) ... end,
-      -- capabilities = require("cmp_nvim_lsp").default_capabilities(),
+      -- treesitter = true,
+      -- settings = { gopls = { gofumpt = true, staticcheck = true } },
+      -- capabilities = require("blink.cmp").get_lsp_capabilities(),
     })
   end,
 }
 ```
+
+If you set gopls options in your gopls config, add them under `settings.gopls` here as well. goxls
+runs its own gopls instance, and that instance reads its settings from the goxls client.
 
 To set it up manually, add the directory to `runtimepath`:
 
 ```lua
 vim.opt.rtp:append("/path/to/tui.gox/editors/nvim")
 require("goxls").setup()
--- Neovim 0.11+ also picks up editors/nvim/lsp/goxls.lua, so this works instead:
--- vim.lsp.enable("goxls")
 ```
 
 `setup()` uses `vim.lsp.config` and `vim.lsp.enable` on Neovim 0.11+, and an autocommand with
-`vim.lsp.start` on older versions. goxls only serves `.gox` buffers, so keep your existing gopls
-setup for `.go` files.
+`vim.lsp.start` on older versions. It also attaches to `.gox` buffers that were opened before
+the plugin loaded. goxls only serves `.gox` buffers, so keep your existing gopls setup for `.go`
+files.
+
+### Tree-sitter
+
+The grammar is in [`tree-sitter-gox`](tree-sitter-gox).
+
+- **Building:** on first use, `setup()` compiles the parser with `$CC`, `cc`, `gcc`, `clang` or
+  `zig` into `editors/nvim/parser/gox.so`. It recompiles automatically after a plugin update
+  changes the grammar. Nvim-treesitter isn't required.
+- **Highlighting:** starts on every `gox` buffer.
+- **Manual rebuild:** run `:GoxBuildParser`.
+- **Opting out:** pass `treesitter = false` to keep the regex syntax.
+
+If you manage parsers with nvim-treesitter instead, point it at `editors/tree-sitter-gox` and
+copy `editors/tree-sitter-gox/queries/highlights.scm` to `queries/gox/highlights.scm` on your
+runtimepath.
 
 ## Helix
 
@@ -96,11 +119,18 @@ roots = ["go.mod"]
 comment-token = "//"
 indent = { tab-width = 4, unit = "\t" }
 language-servers = ["goxls"]
-grammar = "go"
+grammar = "gox"
 
 [language-server.goxls]
 command = "goxls"
+
+[[grammar]]
+name = "gox"
+source = { git = "https://github.com/rknit/tui.gox", rev = "<commit sha>", subpath = "editors/tree-sitter-gox" }
 ```
+
+Then run `hx --grammar fetch && hx --grammar build`, and copy
+`editors/tree-sitter-gox/queries/highlights.scm` to `~/.config/helix/runtime/queries/gox/`.
 
 ## Emacs (eglot)
 

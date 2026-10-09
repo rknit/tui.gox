@@ -1,0 +1,18 @@
+{
+  "grammars": [
+    {
+      "name": "gox",
+      "camelcase": "Gox",
+      "scope": "source.gox",
+      "path": ".",
+      "file-types": ["gox"],
+      "highlights": "queries/highlights.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Tree-sitter grammar for .gox (Go with XML elements)",
+    "links": { "repository": "https://github.com/rknit/tui.gox" }
+  }
+}

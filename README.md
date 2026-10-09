@@ -75,7 +75,7 @@ main.gox:8: cannot use "oops" (untyped string constant) as int value in struct l
 - Go completion, plus completion of tag and attribute names.
 - Generate on save.
 
-It works with any LSP client. A Neovim plugin (filetype, syntax highlighting, LSP setup) and
+It works with any LSP client. A Neovim plugin (filetype, tree-sitter highlighting, LSP setup), a tree-sitter grammar, and
 setups for Helix and Emacs are in [editors/](editors/README.md).
 
 ```sh
