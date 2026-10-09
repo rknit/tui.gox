@@ -1,0 +1,55 @@
+//go:generate go run github.com/rknit/tui.gox/cmd/goxc .
+
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/rknit/tui.gox/gox"
+)
+
+type CounterProps struct {
+	Label string
+	Step  int
+}
+
+func Counter(p CounterProps) gox.Node {
+	count, setCount := gox.UseState(0)
+	return (
+		<box direction="row" gap={2} border="rounded" paddingX={1} title={p.Label}>
+			<text>
+				Count: <span bold color="10">{count}</span>
+			</text>
+			<spacer />
+			<button onPress={func() { setCount(count - p.Step) }}>-{p.Step}</button>
+			<button onPress={func() { setCount(count + p.Step) }} autoFocus>+{p.Step}</button>
+		</box>
+	)
+}
+
+func App() gox.Node {
+	app := gox.UseApp()
+	gox.UseInput(func(k gox.Key) bool {
+		if k.String() == "q" {
+			app.Quit()
+			return true
+		}
+		return false
+	})
+	return (
+		<box padding={1} gap={1}>
+			<text bold color="12">gox counter</text>
+			<Counter label="Ones" step={1} />
+			<Counter label="Tens" step={10} />
+			<text faint>tab/shift+tab to move focus, enter to press, q to quit</text>
+		</box>
+	)
+}
+
+func main() {
+	if err := gox.Run(<App />); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}

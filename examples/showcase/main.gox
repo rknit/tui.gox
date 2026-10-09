@@ -1,0 +1,129 @@
+//go:generate go run github.com/rknit/tui.gox/cmd/goxc .
+
+package main
+
+import (
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/charmbracelet/bubbles/textarea"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rknit/tui.gox/gox"
+)
+
+// Panel is a reusable bordered section that takes children.
+type PanelProps struct {
+	Title    string
+	Grow     int
+	Children gox.Node
+}
+
+func Panel(p PanelProps) gox.Node {
+	return (
+		<box border="rounded" borderColor="8" title={p.Title} paddingX={1} grow={p.Grow}>
+			{p.Children}
+		</box>
+	)
+}
+
+// Download simulates background work updating state from a goroutine.
+func Download() gox.Node {
+	progress, setProgress := gox.UseState(0.0)
+	running, setRunning := gox.UseState(false)
+
+	gox.UseEffect(func() func() {
+		if !running {
+			return nil
+		}
+		stop := make(chan struct{})
+		go func() {
+			for p := 0.0; p <= 1.0001; p += 0.05 {
+				select {
+				case <-stop:
+					return
+				case <-time.After(100 * time.Millisecond):
+					setProgress(p)
+				}
+			}
+			setRunning(false)
+		}()
+		return func() { close(stop) }
+	}, running)
+
+	return (
+		<>
+			<show when={running} fallback={<text color="10">{gox.IfElse(progress >= 1, "✓ done", "idle")}</text>}>
+				<spinner color="13">downloading…</spinner>
+			</show>
+			<progress value={progress} width={24} color="13" showPercent />
+			<button disabled={running} onPress={func() { setProgress(0); setRunning(true) }}>start</button>
+		</>
+	)
+}
+
+var flavors = []string{"Vanilla", "Chocolate", "Strawberry", "Mint", "Pistachio", "Mango"}
+
+func App() gox.Node {
+	app := gox.UseApp()
+	w, h := gox.UseWindowSize()
+	flavor, setFlavor := gox.UseState(0)
+	chosen, setChosen := gox.UseState(-1)
+	name, setName := gox.UseState("")
+	notes, setNotes := gox.UseState("")
+	subscribe, setSubscribe := gox.UseState(true)
+
+	gox.UseInput(func(k gox.Key) bool {
+		if k.String() == "esc" {
+			app.Quit()
+			return true
+		}
+		return false
+	})
+
+	ta := gox.UseMemo(func() tea.Model {
+		t := textarea.New()
+		t.Placeholder = "Embedded bubbles/textarea…"
+		t.SetWidth(30)
+		t.SetHeight(3)
+		t.Focus()
+		return gox.Bubble(t)
+	})
+
+	return (
+		<box padding={1} gap={1}>
+			<box direction="row">
+				<text bold color="12">gox showcase</text>
+				<spacer />
+				<text faint>{w}×{h} · tab to cycle focus · esc to quit</text>
+			</box>
+			<box direction="row" gap={1}>
+				<Panel title="Form" grow={1}>
+					<input value={name} onChange={setName} prompt="Name: " placeholder="Ada" autoFocus />
+					<checkbox checked={subscribe} onChange={setSubscribe}>subscribe</checkbox>
+					<text>Flavor:</text>
+					<select options={flavors} index={flavor} onChange={setFlavor} onSelect={setChosen} height={4} />
+				</Panel>
+				<Panel title="Async" grow={1}>
+					<Download />
+				</Panel>
+			</box>
+			<Panel title="Bubble Tea interop">
+				<model model={ta} onChange={func(m tea.Model) { setNotes(gox.Unwrap[textarea.Model](m).Value()) }} />
+			</Panel>
+			<divider title="summary" color="8" />
+			<text>
+				Hello <span bold>{gox.IfElse(name == "", "stranger", name)}</span>
+				{gox.If(chosen >= 0, fmt.Sprintf(", you picked %s", flavors[max(chosen, 0)]))}
+				{gox.If(subscribe, " (subscribed)")}. Notes: {len(notes)} chars.
+			</text>
+		</box>
+	)
+}
+
+func main() {
+	if err := gox.Run(<App />, gox.WithAltScreen()); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
