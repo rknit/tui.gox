@@ -21,6 +21,12 @@
 (method_declaration
   name: (field_identifier) @function.method)
 
+(node_declaration
+  name: (identifier) @function)
+
+(node_type_parameters
+  name: (identifier) @type)
+
 ; Identifiers
 
 (type_identifier) @type
@@ -91,7 +97,7 @@
   "var"
 ] @keyword
 
-"func" @keyword.function
+["func" "node"] @keyword.function
 "return" @keyword.return
 ["import" "package"] @keyword.import
 

@@ -51,19 +51,15 @@ func reducer(todos []Todo, a action) []Todo {
 	return todos
 }
 
-type TodoItemProps struct {
-	Todo     Todo
-	OnToggle func()
-}
-
-func TodoItem(p TodoItemProps) gox.Node {
+// TodoItem's parameters are its props: goxc declares TodoItemProps.
+func TodoItem(gox_props_ TodoItemProps) gox.Node { return gox_TodoItem(gox_props_.Todo, gox_props_.OnToggle) }; func gox_TodoItem(todo Todo, onToggle func()) gox.Node {
 	color := ""
-	if p.Todo.Done {
+	if todo.Done {
 		color = "8"
 	}
 	return (
-		gox.C(gox.Checkbox, gox.CheckboxProps{Checked: p.Todo.Done, OnChange: func(bool) { p.OnToggle() }, 
-Children: gox.C(gox.Span, gox.SpanProps{Color: color, Strikethrough: p.Todo.Done, Children: p.Todo.Text}),
+		gox.C(gox.Checkbox, gox.CheckboxProps{Checked: todo.Done, OnChange: func(bool) { onToggle() }, 
+Children: gox.C(gox.Span, gox.SpanProps{Color: color, Strikethrough: todo.Done, Children: todo.Text}),
 }))
 }
 
@@ -121,3 +117,6 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+//line main.gox:52
+type TodoItemProps struct { Todo Todo; OnToggle func(); }
