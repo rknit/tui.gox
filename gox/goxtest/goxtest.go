@@ -59,6 +59,43 @@ func (d *Driver) Type(s string) *Driver {
 	return d
 }
 
+// Click sends a left click at screen cell (x, y).
+func (d *Driver) Click(x, y int) *Driver {
+	return d.Send(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+}
+
+// Wheel sends n wheel notches at (x, y); negative n scrolls up.
+func (d *Driver) Wheel(x, y, n int) *Driver {
+	b := tea.MouseButtonWheelDown
+	if n < 0 {
+		b, n = tea.MouseButtonWheelUp, -n
+	}
+	for i := 0; i < n; i++ {
+		d.Send(tea.MouseMsg{X: x, Y: y, Button: b, Action: tea.MouseActionPress})
+	}
+	return d
+}
+
+// Find returns the cell position of the first occurrence of s in the view,
+// or (-1, -1).
+func (d *Driver) Find(s string) (x, y int) {
+	for y, line := range strings.Split(d.View(), "\n") {
+		if i := strings.Index(line, s); i >= 0 {
+			return ansi.StringWidth(line[:i]), y
+		}
+	}
+	return -1, -1
+}
+
+// ClickText clicks the first cell of the first occurrence of s.
+func (d *Driver) ClickText(s string) *Driver {
+	x, y := d.Find(s)
+	if x < 0 {
+		panic("goxtest: text not found: " + s + "\n" + d.View())
+	}
+	return d.Click(x, y)
+}
+
 // Settle waits up to timeout for asynchronous updates (goroutines calling
 // setters, intervals) and applies them.
 func (d *Driver) Settle(timeout time.Duration) *Driver {

@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // ---------------------------------------------------------------------------
@@ -51,6 +52,10 @@ type BoxProps struct {
 	Color, Background string
 	Bold              bool
 
+	// OnMouse receives mouse events inside the box (see WithMouse).
+	// Return true to stop the event from reaching enclosing elements.
+	OnMouse func(MouseEvent) bool
+
 	Hidden   bool
 	Children Node
 }
@@ -69,7 +74,9 @@ type TextProps struct {
 	// Wrap is "wrap" (default), "truncate" or "none".
 	Wrap string
 	// Align is "left", "center" or "right" within the text block.
-	Align    string
+	Align string
+	// OnMouse receives mouse events over the text (outermost text only).
+	OnMouse  func(MouseEvent) bool
 	Children Node
 }
 
@@ -268,7 +275,14 @@ func Input(p InputProps) Node {
 	default:
 		parts = append(parts, Span(TextProps{Color: p.Color, Faint: p.Disabled, Children: string(shown[start:end])}))
 	}
-	return Text(TextProps{Wrap: "none", Children: Fragment(parts)})
+	return Text(TextProps{Wrap: "none", Children: Fragment(parts), OnMouse: func(e MouseEvent) bool {
+		if !e.Clicked() || p.Disabled {
+			return false
+		}
+		focus.Focus()
+		setCursor(min(max(start+e.X-ansi.StringWidth(p.Prompt), 0), len(runes)))
+		return true
+	}})
 }
 
 // ButtonProps configure <button>.
@@ -303,6 +317,16 @@ func Button(p ButtonProps) Node {
 		Faint:    p.Disabled,
 		Wrap:     "none",
 		Children: F("[ ", p.Children, " ]"),
+		OnMouse: func(e MouseEvent) bool {
+			if !e.Clicked() || p.Disabled {
+				return false
+			}
+			focus.Focus()
+			if p.OnPress != nil {
+				p.OnPress()
+			}
+			return true
+		},
 	})
 }
 
@@ -341,6 +365,14 @@ func Checkbox(p CheckboxProps) Node {
 	return Text(TextProps{
 		Faint:    p.Disabled,
 		Children: F(Span(TextProps{Color: color, Bold: focus.Focused, Children: mark}), " ", p.Children),
+		OnMouse: func(e MouseEvent) bool {
+			if !e.Clicked() || p.Disabled {
+				return false
+			}
+			focus.Focus()
+			set(!checked)
+			return true
+		},
 	})
 }
 
@@ -405,17 +437,35 @@ func Select(p SelectProps) Node {
 	}
 	rows := make(Fragment, 0, end-start)
 	for i := start; i < end; i++ {
+		// Clicking a row highlights it; clicking the highlighted row selects it.
+		onMouse := func(e MouseEvent) bool {
+			if !e.Clicked() || p.Disabled {
+				return false
+			}
+			focus.Focus()
+			if i == index && p.OnSelect != nil {
+				p.OnSelect(i)
+			}
+			setIndex(i)
+			return true
+		}
 		if i == index {
 			color := p.Color
 			if focus.Focused {
 				color = hi
 			}
-			rows = append(rows, Text(TextProps{Color: color, Bold: focus.Focused, Wrap: "truncate", Children: ind + " " + p.Options[i]}))
+			rows = append(rows, Text(TextProps{Color: color, Bold: focus.Focused, Wrap: "truncate", OnMouse: onMouse, Children: ind + " " + p.Options[i]}))
 		} else {
-			rows = append(rows, Text(TextProps{Color: p.Color, Faint: p.Disabled, Wrap: "truncate", Children: pad + " " + p.Options[i]}))
+			rows = append(rows, Text(TextProps{Color: p.Color, Faint: p.Disabled, Wrap: "truncate", OnMouse: onMouse, Children: pad + " " + p.Options[i]}))
 		}
 	}
-	return Box(BoxProps{Children: rows})
+	return Box(BoxProps{Children: rows, OnMouse: func(e MouseEvent) bool {
+		if d := e.Wheel(); d != 0 && n > 0 && !p.Disabled {
+			setIndex(min(max(index+d, 0), n-1))
+			return true
+		}
+		return false
+	}})
 }
 
 // SpinnerProps configure <spinner>.

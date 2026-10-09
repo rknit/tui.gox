@@ -24,7 +24,7 @@ type rawNode struct{ s string }
 
 type ruleNode struct{ props DividerProps }
 
-type host = any // string | *boxNode | *textNode | *rawNode | *ruleNode
+type host = any // string | *boxNode | *textNode | *rawNode | *ruleNode | *scrollNode
 
 // Raw renders a preformatted (possibly ANSI-styled) string verbatim, without
 // wrapping. Lines wider than the available space are truncated.
@@ -87,10 +87,54 @@ func (s style) fill(n int) string {
 	return lipgloss.NewStyle().Background(lipgloss.Color(s.bg)).Render(sp)
 }
 
-// block is a rendered rectangle: every line has display width w.
+// block is a rendered rectangle: every line has display width w. regions
+// are mouse targets relative to the block's top-left corner, outermost first.
 type block struct {
-	lines []string
-	w     int
+	lines   []string
+	w       int
+	regions []region
+}
+
+type region struct {
+	x, y, w, h int
+	fn         func(MouseEvent) bool
+}
+
+func shift(rs []region, dx, dy int) []region {
+	out := make([]region, len(rs))
+	for i, r := range rs {
+		r.x += dx
+		r.y += dy
+		out[i] = r
+	}
+	return out
+}
+
+// clip intersects regions with the rectangle [0,w)x[0,h).
+func clip(rs []region, w, h int) []region {
+	var out []region
+	for _, r := range rs {
+		x0, y0 := max(r.x, 0), max(r.y, 0)
+		x1, y1 := min(r.x+r.w, w), min(r.y+r.h, h)
+		if x1 > x0 && y1 > y0 {
+			out = append(out, region{x0, y0, x1 - x0, y1 - y0, r.fn})
+		}
+	}
+	return out
+}
+
+// alignShift is the offset of a w-wide item aligned within total cells.
+func alignShift(total, w int, align string) int {
+	if w >= total {
+		return 0
+	}
+	switch align {
+	case "center":
+		return (total - w) / 2
+	case "right", "end":
+		return total - w
+	}
+	return 0
 }
 
 func (b block) h() int { return len(b.lines) }
@@ -137,6 +181,7 @@ func (b block) withHeight(h int, st style) block {
 	}
 	if len(b.lines) > h {
 		b.lines = b.lines[:h]
+		b.regions = clip(b.regions, b.w, h)
 	}
 	for len(b.lines) < h {
 		b.lines = append(b.lines, st.fill(b.w))
@@ -171,6 +216,8 @@ func layout(n host, c constraint, st style) block {
 		return b
 	case *ruleNode:
 		return layoutRule(v, c, st)
+	case *scrollNode:
+		return layoutScroll(v, c, st)
 	}
 	return block{}
 }
@@ -210,19 +257,23 @@ func layoutText(t *textNode, c constraint, st style) block {
 		s = ansi.Wrap(s, limit, "")
 	}
 	lines := strings.Split(s, "\n")
+	natural := 0
+	for _, l := range lines {
+		natural = max(natural, ansi.StringWidth(l))
+	}
 	w := c.w
 	if !c.stretch {
-		w = 0
-		for _, l := range lines {
-			w = max(w, ansi.StringWidth(l))
-		}
-		w = min(w, c.w)
+		w = min(natural, c.w)
 	}
 	inner := st.merge(t.props)
 	for i, l := range lines {
 		lines[i] = fit(l, w, t.props.Align, inner)
 	}
 	b := block{lines: lines, w: w}
+	if t.props.OnMouse != nil {
+		nw := min(natural, w)
+		b.regions = []region{{alignShift(w, nw, t.props.Align), 0, nw, len(lines), t.props.OnMouse}}
+	}
 	if c.h > 0 {
 		b = b.withHeight(c.h, st)
 	}
@@ -357,6 +408,13 @@ func layoutBox(bn *boxNode, c constraint, parent style) block {
 		cw = max(cw, min(p.MinWidth-frameW, maxContent))
 	}
 
+	content.regions = clip(content.regions, cw, content.h())
+	var regions []region
+	if p.OnMouse != nil {
+		regions = append(regions, region{m.l, m.t, pd.l + cw + pd.r + 2*bw, content.h() + pd.t + pd.b + 2*bw, p.OnMouse})
+	}
+	regions = append(regions, shift(content.regions, m.l+bw+pd.l+alignShift(cw, content.w, p.Align), m.t+bw+pd.t)...)
+
 	// Padding.
 	var lines []string
 	padLine := st.fill(pd.l + cw + pd.r)
@@ -413,12 +471,17 @@ func layoutBox(bn *boxNode, c constraint, parent style) block {
 		}
 		lines = out
 	}
-	return block{lines: lines, w: w}
+	return block{lines: lines, w: w, regions: regions}
 }
 
 func growOf(h host) int {
-	if b, ok := h.(*boxNode); ok {
-		return b.props.Grow
+	switch v := h.(type) {
+	case *boxNode:
+		return v.props.Grow
+	case *scrollNode:
+		if v.props.Height == 0 {
+			return 1 // fill the remaining height of a sized column
+		}
 	}
 	return 0
 }
@@ -499,12 +562,14 @@ func layoutColumn(kids []host, p BoxProps, w int, fixed bool, h int, st style) b
 	}
 
 	var lines []string
+	var regions []region
 	for i, b := range blocks {
 		if i > 0 {
 			for g := 0; g < p.Gap; g++ {
 				lines = append(lines, st.fill(cw))
 			}
 		}
+		regions = append(regions, shift(b.regions, alignShift(cw, b.w, p.Align), len(lines))...)
 		for _, l := range b.lines {
 			lines = append(lines, fit(l, cw, p.Align, st))
 		}
@@ -523,8 +588,9 @@ func layoutColumn(kids []host, p BoxProps, w int, fixed bool, h int, st style) b
 			pad[i] = st.fill(cw)
 		}
 		lines = append(pad, lines...)
+		regions = shift(regions, 0, top)
 	}
-	return block{lines: lines, w: cw}
+	return block{lines: lines, w: cw, regions: regions}
 }
 
 func layoutRow(kids []host, p BoxProps, w int, fixed bool, h int, st style) block {
@@ -589,6 +655,12 @@ func layoutRow(kids []host, p BoxProps, w int, fixed bool, h int, st style) bloc
 	for _, b := range widths {
 		total += b
 	}
+	var regions []region
+	x := 0
+	for i, b := range blocks {
+		regions = append(regions, shift(b.regions, x, 0)...)
+		x += widths[i] + p.Gap
+	}
 	lines := make([]string, rowH)
 	for li := 0; li < rowH; li++ {
 		var sb strings.Builder
@@ -604,5 +676,5 @@ func layoutRow(kids []host, p BoxProps, w int, fixed bool, h int, st style) bloc
 		}
 		lines[li] = sb.String()
 	}
-	return block{lines: lines, w: total}
+	return block{lines: lines, w: total, regions: clip(regions, total, rowH)}
 }

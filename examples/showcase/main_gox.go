@@ -14,17 +14,43 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Panel is a reusable bordered section that takes children.
+// Panel is a reusable bordered section. Box lets callers pass any layout
+// props, which are spread onto the underlying <box>.
 type PanelProps struct {
 	Title    string
-	Grow     int
+	Box      gox.BoxProps
 	Children gox.Node
 }
 
 func Panel(p PanelProps) gox.Node {
 	return (
-		gox.C(gox.Box, gox.BoxProps{Border: "rounded", BorderColor: "8", Title: p.Title, PaddingX: 1, Grow: p.Grow, 
-Children: p.Children,
+		gox.C(gox.Box, func() (gox_spread_ gox.BoxProps) { gox_spread_ = (p.Box); gox_spread_.Border = "rounded"; gox_spread_.BorderColor = "8"; gox_spread_.Title = p.Title; gox_spread_.PaddingX = 1; 
+gox_spread_.Children = p.Children; 
+return }()))
+}
+
+// List is a generic component: <List[T] items={...} render={...} />.
+type ListProps[T any] struct {
+	Items  []T
+	Render func(item T, index int) gox.Node
+}
+
+func List[T any](p ListProps[T]) gox.Node {
+	return gox.F(gox.Map(p.Items, p.Render))
+}
+
+// Log appends a line every half second into a scroll viewport that follows
+// the bottom until you scroll up (wheel, or focus it and use arrows).
+func Log() gox.Node {
+	lines, setLines := gox.UseState([]string{"started"})
+	gox.UseInterval(500*time.Millisecond, func() {
+		setLines(append(lines, fmt.Sprintf("%s tick %d", time.Now().Format("15:04:05"), len(lines))))
+	})
+	return (
+		gox.C(gox.Scroll, gox.ScrollProps{Height: 4, FollowBottom: true, 
+Children: gox.C(List[string], ListProps[string]{Items: lines, Render: func(l string, i int) gox.Node {
+				return gox.K(i, gox.C(gox.Text, gox.TextProps{Faint: i%2 == 1, Children: l}))
+			}}),
 }))
 }
 
@@ -95,18 +121,19 @@ func App() gox.Node {
 Children: gox.F(gox.C(gox.Box, gox.BoxProps{Direction: "row", 
 Children: gox.F(gox.C(gox.Text, gox.TextProps{Bold: true, Color: "12", Children: "gox showcase"}), 
 gox.C(gox.Spacer, gox.SpacerProps{}), 
-gox.C(gox.Text, gox.TextProps{Faint: true, Children: gox.F(w, "×", h, " · tab to cycle focus · esc to quit")}),
+gox.C(gox.Text, gox.TextProps{Faint: true, Children: gox.F(w, "×", h, " · tab/mouse to focus · esc to quit")}),
 )}), 
 gox.C(gox.Box, gox.BoxProps{Direction: "row", Gap: 1, 
-Children: gox.F(gox.C(Panel, PanelProps{Title: "Form", Grow: 1, 
+Children: gox.F(gox.C(Panel, PanelProps{Title: "Form", Box: gox.BoxProps{Grow: 1}, 
 Children: gox.F(gox.C(gox.Input, gox.InputProps{Value: name, OnChange: setName, Prompt: "Name: ", Placeholder: "Ada", AutoFocus: true}), 
 gox.C(gox.Checkbox, gox.CheckboxProps{Checked: subscribe, OnChange: setSubscribe, Children: "subscribe"}), 
 gox.C(gox.Text, gox.TextProps{Children: "Flavor:"}), 
 gox.C(gox.Select, gox.SelectProps{Options: flavors, Index: flavor, OnChange: setFlavor, OnSelect: setChosen, Height: 4}),
 )}), 
-gox.C(Panel, PanelProps{Title: "Async", Grow: 1, 
-Children: gox.C0(Download),
-}),
+gox.C(Panel, PanelProps{Title: "Async", Box: gox.BoxProps{Grow: 1, Gap: 1}, 
+Children: gox.F(gox.C0(Download), 
+gox.C0(Log),
+)}),
 )}), 
 gox.C(Panel, PanelProps{Title: "Bubble Tea interop", 
 Children: gox.C(gox.Model, gox.ModelProps{Model: ta, OnChange: func(m tea.Model) { setNotes(gox.Unwrap[textarea.Model](m).Value()) }}),
@@ -121,7 +148,7 @@ gox.If(subscribe, " (subscribed)"), ". Notes: ", len(notes), " chars.",
 }
 
 func main() {
-	if err := gox.Run(gox.C0(App), gox.WithAltScreen()); err != nil {
+	if err := gox.Run(gox.C0(App), gox.WithAltScreen(), gox.WithMouse()); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}

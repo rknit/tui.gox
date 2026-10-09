@@ -123,6 +123,21 @@ func UseEffect(fn func() func(), deps ...any) {
 	})
 }
 
+// UseRenderEffect runs fn after every render, like a React effect without a
+// dependency list. The cleanup returned by the previous run is called first.
+func UseRenderEffect(fn func() func()) {
+	h, r := slot("UseRenderEffect", func(*renderer) *effectHook { return &effectHook{} })
+	r.app.effects = append(r.app.effects, func() {
+		if h.gone {
+			return
+		}
+		if h.cleanup != nil {
+			h.cleanup()
+		}
+		h.cleanup = fn()
+	})
+}
+
 // UseApp returns the App rendering the current component.
 func UseApp() *App { return cur("UseApp").app }
 
@@ -223,7 +238,7 @@ func UseInterval(d time.Duration, fn func()) {
 			case <-stop:
 				return
 			case <-t.C:
-				app.enqueue(func() {
+				app.enqueueFresh(func() {
 					select {
 					case <-stop:
 					default:

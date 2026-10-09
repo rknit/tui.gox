@@ -75,6 +75,8 @@ main.gox:8: cannot use "oops" (untyped string constant) as int value in struct l
 | `<App />` where `func App() gox.Node` | `gox.C0(App)` |
 | `<Item key={id} />` | `gox.K(id, gox.C(Item, ItemProps{}))` |
 | `<>a{b}</>` | `gox.F("a", b)` |
+| `<box {...p.Box} padding={1} />` | `gox.C(gox.Box, func() (v gox.BoxProps) { v = (p.Box); v.Padding = 1; return }())` |
+| `<List[Item] items={xs} />` | `gox.C(List[Item], ListProps[Item]{Items: xs})` |
 
 - **Built-in tags** (`box`, `text`, `input`, …) map to the `gox` package (`box` → `gox.Box`/`gox.BoxProps`).
 - **Any other tag** is your own component, lowercase (`<app/>`) or capitalized (`<App/>`).
@@ -86,6 +88,11 @@ main.gox:8: cannot use "oops" (untyped string constant) as int value in struct l
   `on-press` → `OnPress`). Values can be `"strings"`, `{expressions}` or `<elements>`. A bare
   attribute means `true`.
   Props are type-checked by the Go compiler.
+- **Spread** `{...expr}` copies a whole props value of the element's props type. It must be the
+  first attribute, and later attributes override its fields.
+- **Generic components** take type arguments in the tag: `<List[Item]>…</List>`. The closing
+  tag may omit them. goxc substitutes them into the declared props type, such as
+  `ListProps[T]`.
 - **Children** go into the props' `Children gox.Node` field. Text follows JSX whitespace rules,
   and HTML entities such as `&amp;` are decoded.
 - **`{expr}`** children can be any renderable value: strings, numbers, `fmt.Stringer`, `error`,
@@ -112,10 +119,11 @@ concept can also be used directly from Go without the XML syntax.
 | `UseRef(init) *T` | Persistent value that doesn't cause a re-render. |
 | `UseMemo(fn, deps...) T` | Recomputes `fn` when deps change. |
 | `UseEffect(fn, deps...)` | Runs after render when deps change. With no deps it runs once on mount. `fn` may return a cleanup. |
+| `UseRenderEffect(fn)` | Runs after every render, like a React effect without a dependency list. |
 | `UseFocus(FocusOptions) Focus` | Makes the component focusable. `OnKey` receives keys while it has focus. |
 | `UseInput(func(Key) bool)` | Global key handler for keys the focused component didn't consume. |
 | `UseMsg(func(tea.Msg))` | Receives every Bubble Tea message, including custom ones. |
-| `UseInterval(d, fn)` | Ticker that runs `fn` on the update loop. |
+| `UseInterval(d, fn)` | Ticker that runs `fn` on the update loop. Each call sees state from a fresh render. |
 | `UseWindowSize() (w, h)` | Terminal size. |
 | `UseApp() *App` | `Quit()`, `Cmd(tea.Cmd)`, `Send(msg)`, `FocusNext()`, `FocusPrev()`, `Invalidate()`. |
 
@@ -138,6 +146,7 @@ Focus moves with `tab`/`shift+tab` in render order. `ctrl+c` quits unless you pa
 | `checkbox` | `checked`, `onChange` |
 | `select` | `options`, `index`, `onChange`, `onSelect`, `height` (scrolls) |
 | `spinner`, `progress` | Animated indicator; bar with `value` from 0 to 1, `width`, `showPercent` |
+| `scroll` | Vertical viewport. Props: `height` (default: fills a sized parent), `followBottom`, `noScrollbar`, `wheelStep`. Scroll with up/down, j/k, pgup/pgdown, home/end, or the mouse wheel |
 | `model` | Embeds any `tea.Model`. Bubbles components can be wrapped with `gox.Bubble(m)` and read back with `gox.Unwrap[T](m)` |
 
 Interactive elements accept `autoFocus`, `disabled` and `focusColor`. They're controlled when
@@ -145,6 +154,18 @@ you pass `onChange`. Otherwise they keep their own state.
 
 Colors are lipgloss colors (`"12"`, `"#ff8800"`). Box `color` and `background` are inherited by
 the text inside the box.
+
+### Mouse
+
+`gox.Run(<App/>, gox.WithAltScreen(), gox.WithMouse())` turns mouse support on:
+
+- Clicking `button`, `checkbox`, `input` or `select` focuses and activates them.
+- The mouse wheel scrolls `scroll` and `select`.
+- Custom handling uses `onMouse={func(e gox.MouseEvent) bool {...}}` on `box` or `text`.
+  `e.X` and `e.Y` are relative to the element, and `e.Clicked()` and `e.Wheel()` report the
+  action.
+- Events go to the innermost element under the pointer first, then bubble outward until a
+  handler returns `true`.
 
 ### Interop with Bubble Tea
 
@@ -160,6 +181,7 @@ the text inside the box.
 d := goxtest.New(<App />, 80, 24)
 d.Type("buy milk").Press("enter", "tab", "space")
 if !strings.Contains(d.View(), "[x] buy milk") { t.Fatal(d.View()) }
+d.ClickText("clear done")   // also Click(x, y), Wheel(x, y, n), Find(text)
 ```
 
 `gox.RenderString(node, width)` renders a tree once, which is useful for static output and
@@ -170,7 +192,7 @@ snapshot tests.
 ```sh
 go run ./examples/counter    # state, buttons, focus
 go run ./examples/todo       # reducer, input, keyed lists, checkbox, show
-go run ./examples/showcase   # layout, select, async effects, spinner/progress, bubbles textarea
+go run ./examples/showcase   # layout, spread, generics, scroll, mouse, async, bubbles textarea
 ```
 
 The generated `*_gox.go` files are committed, so `go build ./...` works without running goxc.

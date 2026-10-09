@@ -11,18 +11,45 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Panel is a reusable bordered section that takes children.
+// Panel is a reusable bordered section. Box lets callers pass any layout
+// props, which are spread onto the underlying <box>.
 type PanelProps struct {
 	Title    string
-	Grow     int
+	Box      gox.BoxProps
 	Children gox.Node
 }
 
 func Panel(p PanelProps) gox.Node {
 	return (
-		<box border="rounded" borderColor="8" title={p.Title} paddingX={1} grow={p.Grow}>
+		<box {...p.Box} border="rounded" borderColor="8" title={p.Title} paddingX={1}>
 			{p.Children}
 		</box>
+	)
+}
+
+// List is a generic component: <List[T] items={...} render={...} />.
+type ListProps[T any] struct {
+	Items  []T
+	Render func(item T, index int) gox.Node
+}
+
+func List[T any](p ListProps[T]) gox.Node {
+	return <>{gox.Map(p.Items, p.Render)}</>
+}
+
+// Log appends a line every half second into a scroll viewport that follows
+// the bottom until you scroll up (wheel, or focus it and use arrows).
+func Log() gox.Node {
+	lines, setLines := gox.UseState([]string{"started"})
+	gox.UseInterval(500*time.Millisecond, func() {
+		setLines(append(lines, fmt.Sprintf("%s tick %d", time.Now().Format("15:04:05"), len(lines))))
+	})
+	return (
+		<scroll height={4} followBottom>
+			<List[string] items={lines} render={func(l string, i int) gox.Node {
+				return <text key={i} faint={i%2 == 1}>{l}</text>
+			}} />
+		</scroll>
 	)
 }
 
@@ -94,17 +121,18 @@ func App() gox.Node {
 			<box direction="row">
 				<text bold color="12">gox showcase</text>
 				<spacer />
-				<text faint>{w}×{h} · tab to cycle focus · esc to quit</text>
+				<text faint>{w}×{h} · tab/mouse to focus · esc to quit</text>
 			</box>
 			<box direction="row" gap={1}>
-				<Panel title="Form" grow={1}>
+				<Panel title="Form" box={gox.BoxProps{Grow: 1}}>
 					<input value={name} onChange={setName} prompt="Name: " placeholder="Ada" autoFocus />
 					<checkbox checked={subscribe} onChange={setSubscribe}>subscribe</checkbox>
 					<text>Flavor:</text>
 					<select options={flavors} index={flavor} onChange={setFlavor} onSelect={setChosen} height={4} />
 				</Panel>
-				<Panel title="Async" grow={1}>
+				<Panel title="Async" box={gox.BoxProps{Grow: 1, Gap: 1}}>
 					<Download />
+					<Log />
 				</Panel>
 			</box>
 			<Panel title="Bubble Tea interop">
@@ -121,7 +149,7 @@ func App() gox.Node {
 }
 
 func main() {
-	if err := gox.Run(<App />, gox.WithAltScreen()); err != nil {
+	if err := gox.Run(<App />, gox.WithAltScreen(), gox.WithMouse()); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}

@@ -28,6 +28,7 @@ type App struct {
 
 	focused    string
 	focusables []focusEntry
+	regions    []region
 	inputs     []func(Key) bool
 	msgs       []func(tea.Msg)
 	effects    []func()
@@ -35,7 +36,7 @@ type App struct {
 	cmds []tea.Cmd // pending commands, owned by the update loop
 
 	mu      sync.Mutex
-	queue   []func()
+	queue   []queued
 	wake    chan struct{}
 	dirty   bool
 	started bool
@@ -50,6 +51,7 @@ type focusEntry struct {
 type options struct {
 	altScreen  bool
 	fullHeight bool
+	mouse      bool
 	noCtrlC    bool
 	width      int
 	height     int
@@ -64,6 +66,10 @@ type Option func(*options)
 func WithAltScreen() Option {
 	return func(o *options) { o.altScreen, o.fullHeight = true, true }
 }
+
+// WithMouse enables mouse support (clicks, wheel). Coordinates assume the
+// view starts at the top of the screen, so combine it with WithAltScreen.
+func WithMouse() Option { return func(o *options) { o.mouse = true } }
 
 // WithFullHeight makes the root box fill the terminal height.
 func WithFullHeight() Option { return func(o *options) { o.fullHeight = true } }
@@ -96,6 +102,9 @@ func Run(root Node, opts ...Option) error {
 	popts := a.opts.program
 	if a.opts.altScreen {
 		popts = append(popts, tea.WithAltScreen())
+	}
+	if a.opts.mouse {
+		popts = append(popts, tea.WithMouseCellMotion())
 	}
 	_, err := tea.NewProgram(a, popts...).Run()
 	a.Unmount()
@@ -157,6 +166,8 @@ func (a *App) dispatch(msg tea.Msg) {
 		a.dirty = true
 	case Key:
 		a.handleKey(m)
+	case tea.MouseMsg:
+		a.handleMouse(m)
 	}
 	for _, h := range a.msgs {
 		h(msg)
@@ -195,10 +206,22 @@ func (a *App) takeCmds() []tea.Cmd {
 	return c
 }
 
+type queued struct {
+	f func()
+	// fresh callbacks run user code that captured render state, so pending
+	// updates are rendered before they run.
+	fresh bool
+}
+
 // enqueue schedules f to run on the update loop. Safe for concurrent use.
-func (a *App) enqueue(f func()) {
+func (a *App) enqueue(f func()) { a.push(queued{f: f}) }
+
+// enqueueFresh is like enqueue, but f sees closures from an up-to-date render.
+func (a *App) enqueueFresh(f func()) { a.push(queued{f: f, fresh: true}) }
+
+func (a *App) push(q queued) {
 	a.mu.Lock()
-	a.queue = append(a.queue, f)
+	a.queue = append(a.queue, q)
 	a.mu.Unlock()
 	select {
 	case a.wake <- struct{}{}:
@@ -208,27 +231,61 @@ func (a *App) enqueue(f func()) {
 
 // flush applies queued updates and re-renders until the tree is stable.
 func (a *App) flush() {
-	for i := 0; i < 100; i++ {
+	for commits := 0; commits < 100; {
 		a.mu.Lock()
-		q := a.queue
-		a.queue = nil
+		if len(a.queue) == 0 {
+			a.mu.Unlock()
+			if !a.dirty {
+				return
+			}
+			a.commit()
+			commits++
+			continue
+		}
+		it := a.queue[0]
+		a.queue = a.queue[1:]
 		a.mu.Unlock()
-		for _, f := range q {
-			f()
+		if it.fresh {
+			// Apply pending state updates (including ones queued by earlier
+			// callbacks) and render so it sees current closures.
+			a.applyPlain()
+			if a.dirty {
+				a.commit()
+				commits++
+			}
 		}
-		if len(q) > 0 {
-			a.dirty = true
+		it.f()
+		a.dirty = true
+	}
+}
+
+// applyPlain runs queued non-fresh items, keeping fresh ones queued.
+func (a *App) applyPlain() {
+	a.mu.Lock()
+	var plain, rest []queued
+	for _, it := range a.queue {
+		if it.fresh {
+			rest = append(rest, it)
+		} else {
+			plain = append(plain, it)
 		}
-		if !a.dirty {
-			return
-		}
-		a.dirty = false
-		a.render()
-		effects := a.effects
-		a.effects = nil
-		for _, e := range effects {
-			e()
-		}
+	}
+	a.queue = rest
+	a.mu.Unlock()
+	for _, it := range plain {
+		it.f()
+		a.dirty = true
+	}
+}
+
+// commit renders the tree and runs pending effects.
+func (a *App) commit() {
+	a.dirty = false
+	a.render()
+	effects := a.effects
+	a.effects = nil
+	for _, e := range effects {
+		e()
 	}
 }
 
@@ -388,7 +445,9 @@ func (a *App) render() {
 	if a.opts.fullHeight {
 		root.props.Height = a.height
 	}
-	a.view = strings.Join(layout(root, c, style{}).lines, "\n")
+	frame := layout(root, c, style{})
+	a.view = strings.Join(frame.lines, "\n")
+	a.regions = frame.regions
 }
 
 func (r *renderer) expandList(n Node, path string) []host {
@@ -428,6 +487,10 @@ func (r *renderer) expand(n Node, path string) []host {
 		c.kids = r.expandList(v.props.Children, path)
 		return []host{&c}
 	case *textNode:
+		c := *v
+		c.kids = r.expandList(v.props.Children, path)
+		return []host{&c}
+	case *scrollNode:
 		c := *v
 		c.kids = r.expandList(v.props.Children, path)
 		return []host{&c}

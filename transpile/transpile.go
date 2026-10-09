@@ -38,6 +38,8 @@ const RuntimeImport = "github.com/rknit/tui.gox/gox"
 
 // Signature describes how a component function is called.
 type Signature struct {
+	// TypeParams lists the type parameter names of a generic component.
+	TypeParams []string
 	// NoProps is true for components declared as func() gox.Node.
 	NoProps bool
 	// PropsType is the Go type expression of the single props parameter.
@@ -381,7 +383,7 @@ func (t *transpiler) element(pos int, top bool) string {
 
 	name, pos := t.tagName(pos)
 	var attrs []attr
-	var key *attr
+	var key, spread *attr
 	selfClosing := false
 	for {
 		pos = t.skipSpace(pos)
@@ -402,7 +404,23 @@ func (t *transpiler) element(pos int, top bool) string {
 			break
 		}
 		if c == '{' {
-			t.fail(pos, "spread attributes are not supported")
+			p := t.skipSpace(pos + 1)
+			if !bytes.HasPrefix(t.src[p:], []byte("...")) {
+				t.fail(pos, "expected spread attribute {...expr}")
+			}
+			if spread != nil {
+				t.fail(pos, "only one spread attribute is allowed")
+			}
+			if len(attrs) > 0 {
+				t.fail(pos, "spread attribute must come before other attributes")
+			}
+			code := strings.TrimSpace(t.goCode(p+3, true))
+			if code == "" {
+				t.fail(pos, "empty spread attribute")
+			}
+			spread = &attr{value: code, pos: pos}
+			pos = t.end
+			continue
 		}
 		if !isIdentStart(t.src, pos) {
 			t.fail(pos, "unexpected %q in element <%s>", c, name)
@@ -469,17 +487,17 @@ func (t *transpiler) element(pos int, top bool) string {
 	if key != nil {
 		w.str(t.rt + ".K(" + key.value + ", ")
 	}
-	t.call(w, name, start, attrs, children, end)
+	t.call(w, name, start, spread, attrs, children, end)
 	if key != nil {
 		w.str(")")
 	}
 	return w.String()
 }
 
-func (t *transpiler) call(w *writer, name string, pos int, attrs []attr, children []child, end int) {
+func (t *transpiler) call(w *writer, name string, pos int, spread *attr, attrs []attr, children []child, end int) {
 	fn, props, noProps := t.resolve(name, pos)
 	if noProps {
-		if len(attrs) > 0 || len(children) > 0 {
+		if spread != nil || len(attrs) > 0 || len(children) > 0 {
 			t.fail(pos, "component %s takes no props", name)
 		}
 		w.str(t.rt + ".C0(" + fn)
@@ -487,6 +505,11 @@ func (t *transpiler) call(w *writer, name string, pos int, attrs []attr, childre
 		return
 	}
 	w.str(t.rt + ".C(" + fn + ", ")
+	if spread != nil {
+		t.spreadProps(w, props, spread, attrs, children, end)
+		w.str(")")
+		return
+	}
 	if strings.HasPrefix(props, "*") {
 		w.str("&" + props[1:] + "{")
 	} else {
@@ -522,6 +545,40 @@ func (t *transpiler) call(w *writer, name string, pos int, attrs []attr, childre
 	w.str(")")
 }
 
+// spreadProps emits an immediately-invoked function that copies the spread
+// value and assigns the remaining attributes:
+//
+//	func() (v P) { v = (spread); v.A = 1; return }()
+func (t *transpiler) spreadProps(w *writer, props string, spread *attr, attrs []attr, children []child, end int) {
+	const v = "gox_spread_"
+	if ptr, ok := strings.CutPrefix(props, "*"); ok {
+		w.str("func() *" + ptr + " { " + v + " := *(" + spread.value + "); ")
+	} else {
+		w.str("func() (" + v + " " + props + ") { " + v + " = (" + spread.value + "); ")
+	}
+	for _, a := range attrs {
+		w.sync(a.pos)
+		w.str(v + "." + fieldName(a.name) + " = " + a.value + "; ")
+	}
+	if len(children) > 0 {
+		w.sync(children[0].pos)
+		w.str(v + ".Children = ")
+		if len(children) == 1 {
+			w.str(children[0].code)
+		} else {
+			w.str(t.rt + ".F(")
+			w.args(children, end)
+			w.str(")")
+		}
+		w.str("; ")
+	}
+	ret := "return }()"
+	if strings.HasPrefix(props, "*") {
+		ret = "return &" + v + " }()"
+	}
+	w.end(end, ret, false)
+}
+
 // resolve maps a tag name to the component function and its props type.
 // Intrinsics are the built-in lowercase elements provided by the runtime.
 // Other lowercase tags refer to components declared in the same package.
@@ -529,10 +586,33 @@ var Intrinsics = map[string]bool{
 	"box": true, "text": true, "span": true, "br": true, "spacer": true,
 	"divider": true, "hr": true, "show": true, "input": true, "button": true,
 	"checkbox": true, "select": true, "spinner": true, "progress": true,
-	"model": true,
+	"model": true, "scroll": true,
 }
 
-func (t *transpiler) resolve(name string, pos int) (fn, props string, noProps bool) {
+func (t *transpiler) resolve(tag string, pos int) (fn, props string, noProps bool) {
+	name, targs := splitTag(tag)
+	if targs != "" {
+		if Intrinsics[name] {
+			t.fail(pos, "built-in element <%s> does not take type arguments", name)
+		}
+		sig, ok := t.opts.Components[name]
+		switch {
+		case !ok:
+			return tag, name + "Props[" + targs + "]", false
+		case len(sig.TypeParams) == 0:
+			t.fail(pos, "component %s is not generic", name)
+		case sig.NoProps:
+			return tag, "", true
+		}
+		args := splitTopLevel(targs)
+		if len(args) != len(sig.TypeParams) {
+			t.fail(pos, "component %s expects %d type argument(s), got %d", name, len(sig.TypeParams), len(args))
+		}
+		return tag, substitute(sig.PropsType, sig.TypeParams, args), false
+	}
+	if sig, ok := t.opts.Components[name]; ok && len(sig.TypeParams) > 0 {
+		t.fail(pos, "generic component %s needs type arguments: <%s[%s]>", name, name, strings.Join(sig.TypeParams, ", "))
+	}
 	if Intrinsics[name] {
 		if _, local := t.opts.Components[name]; local {
 			t.fail(pos, "<%s> is ambiguous: it is a built-in element and component func %s is declared in this package; rename the component", name, name)
@@ -583,7 +663,34 @@ func (t *transpiler) tagName(pos int) (string, int) {
 		}
 		pos = identEnd(t.src, pos+1)
 	}
+	if pos < len(t.src) && t.src[pos] == '[' { // type arguments: <List[Item]>
+		depth := 0
+		for ; pos < len(t.src); pos++ {
+			switch t.src[pos] {
+			case '[', '(':
+				depth++
+			case ']', ')':
+				depth--
+			case '\n', '>', '<':
+				t.fail(start, "unterminated type arguments in tag")
+			}
+			if depth == 0 {
+				pos++
+				break
+			}
+		}
+	}
 	return string(t.src[start:pos]), pos
+}
+
+func baseOf(name string) string { b, _ := splitTag(name); return b }
+
+// splitTag separates "List[Item]" into "List" and "Item".
+func splitTag(name string) (base, args string) {
+	if i := strings.IndexByte(name, '['); i >= 0 {
+		return name[:i], name[i+1 : len(name)-1]
+	}
+	return name, ""
 }
 
 func (t *transpiler) skipSpace(pos int) int {
@@ -636,7 +743,7 @@ func (t *transpiler) children(pos int, name string) ([]child, int) {
 				if p >= len(t.src) || t.src[p] != '>' {
 					t.fail(pos, "expected '>'")
 				}
-				if closing != name {
+				if cb, _ := splitTag(closing); closing != name && (cb != closing || cb != baseOf(name)) {
 					if name == "" {
 						t.fail(pos, "expected </> to close fragment, got </%s>", closing)
 					}
@@ -826,20 +933,73 @@ func CollectSignatures(src []byte, into map[string]Signature) {
 	}
 	for _, d := range f.Decls {
 		fd, ok := d.(*ast.FuncDecl)
-		if !ok || fd.Recv != nil || fd.Type.TypeParams != nil || fd.Type.Results == nil || len(fd.Type.Results.List) != 1 {
+		if !ok || fd.Recv != nil || fd.Type.Results == nil || len(fd.Type.Results.List) != 1 {
 			continue
 		}
 		res := fd.Type.Results.List[0].Type
 		if !strings.HasSuffix(string(src[fset.Position(res.Pos()).Offset:fset.Position(res.End()).Offset]), "Node") {
 			continue
 		}
+		var tparams []string
+		if fd.Type.TypeParams != nil {
+			for _, f := range fd.Type.TypeParams.List {
+				for _, n := range f.Names {
+					tparams = append(tparams, n.Name)
+				}
+			}
+		}
 		params := fd.Type.Params.List
 		switch {
 		case len(params) == 0:
-			into[fd.Name.Name] = Signature{NoProps: true}
+			into[fd.Name.Name] = Signature{NoProps: true, TypeParams: tparams}
 		case len(params) == 1 && len(params[0].Names) <= 1:
 			typ := params[0].Type
-			into[fd.Name.Name] = Signature{PropsType: string(src[fset.Position(typ.Pos()).Offset:fset.Position(typ.End()).Offset])}
+			into[fd.Name.Name] = Signature{TypeParams: tparams, PropsType: string(src[fset.Position(typ.Pos()).Offset:fset.Position(typ.End()).Offset])}
 		}
 	}
+}
+
+// splitTopLevel splits a comma separated list, ignoring nested brackets.
+func splitTopLevel(s string) []string {
+	var out []string
+	depth, start := 0, 0
+	for i, c := range s {
+		switch c {
+		case '[', '(', '{':
+			depth++
+		case ']', ')', '}':
+			depth--
+		case ',':
+			if depth == 0 {
+				out = append(out, strings.TrimSpace(s[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	return append(out, strings.TrimSpace(s[start:]))
+}
+
+// substitute replaces type parameter identifiers in typ with arguments.
+func substitute(typ string, params, args []string) string {
+	repl := map[string]string{}
+	for i, p := range params {
+		repl[p] = args[i]
+	}
+	var b strings.Builder
+	src := []byte(typ)
+	for i := 0; i < len(src); {
+		if isIdentStart(src, i) && (i == 0 || src[i-1] != '.') {
+			e := identEnd(src, i)
+			if r, ok := repl[string(src[i:e])]; ok {
+				b.WriteString(r)
+			} else {
+				b.Write(src[i:e])
+			}
+			i = e
+			continue
+		}
+		b.WriteByte(src[i])
+		i++
+	}
+	return b.String()
 }

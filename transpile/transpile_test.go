@@ -3,6 +3,7 @@ package transpile
 import (
 	"go/parser"
 	"go/token"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -197,7 +198,7 @@ func (r R) E() gox.Node { return nil }
 		t.Fatalf("got %v", sigs)
 	}
 	for k, v := range want {
-		if sigs[k] != v {
+		if !reflect.DeepEqual(sigs[k], v) {
 			t.Errorf("%s: got %+v want %+v", k, sigs[k], v)
 		}
 	}
@@ -237,5 +238,61 @@ func TestBuiltinCollision(t *testing.T) {
 	// Declaring the func without using the tag is fine.
 	if got := expr(t, `<box />`, comps); got != `gox.C(gox.Box, gox.BoxProps{})` {
 		t.Errorf("got %s", got)
+	}
+}
+
+func TestSpread(t *testing.T) {
+	comps := map[string]Signature{"Card": {PropsType: "*CardOpts"}}
+	cases := []struct{ in, want string }{
+		{`<box {...p} padding={1}>x</box>`, `gox.C(gox.Box, func() (gox_spread_ gox.BoxProps) { gox_spread_ = (p); gox_spread_.Padding = 1; gox_spread_.Children = "x"; return }())`},
+		{`<Card {...base} />`, `gox.C(Card, func() *CardOpts { gox_spread_ := *(base); return &gox_spread_ }())`},
+		{`<box key={k} {...p} />`, `gox.K(k, gox.C(gox.Box, func() (gox_spread_ gox.BoxProps) { gox_spread_ = (p); return }()))`},
+	}
+	for _, c := range cases {
+		if got := expr(t, c.in, comps); got != c.want {
+			t.Errorf("%s\n got: %s\nwant: %s", c.in, got, c.want)
+		}
+	}
+	// Multi-line spread elements must still parse.
+	expr(t, "<box\n {...p}\n padding={1}>\n <text>a</text>\n <text>b</text>\n</box>", nil)
+	for _, bad := range []string{`<box a={1} {...p} />`, `<box {...p} {...q} />`, `<box {p} />`} {
+		if _, err := Transpile([]byte("package p\nvar _ = "+bad+"\n"), Options{Filename: "x.gox"}); err == nil {
+			t.Errorf("%s: expected error", bad)
+		}
+	}
+}
+
+func TestGenericComponents(t *testing.T) {
+	comps := map[string]Signature{
+		"List": {TypeParams: []string{"T"}, PropsType: "ListProps[T]"},
+		"Pair": {TypeParams: []string{"K", "V"}, PropsType: "*PairProps[K, map[K]V]"},
+	}
+	cases := []struct{ in, want string }{
+		{`<List[Item] items={xs} />`, `gox.C(List[Item], ListProps[Item]{Items: xs})`},
+		{`<List[Item]>x</List>`, `gox.C(List[Item], ListProps[Item]{Children: "x"})`},
+		{`<List[Item]>x</List[Item]>`, `gox.C(List[Item], ListProps[Item]{Children: "x"})`},
+		{`<Pair[string, []int] />`, `gox.C(Pair[string, []int], &PairProps[string, map[string][]int]{})`},
+		{`<ui.Table[Row] />`, `gox.C(ui.Table[Row], ui.TableProps[Row]{})`},
+	}
+	for _, c := range cases {
+		if got := expr(t, c.in, comps); got != c.want {
+			t.Errorf("%s\n got: %s\nwant: %s", c.in, got, c.want)
+		}
+	}
+	for _, c := range []struct{ in, msg string }{
+		{`<List />`, "generic component List needs type arguments: <List[T]>"},
+		{`<List[A, B] />`, "expects 1 type argument(s), got 2"},
+		{`<box[int] />`, "does not take type arguments"},
+		{`<List[A]></Other>`, "expected </List[A]>, got </Other>"},
+	} {
+		_, err := Transpile([]byte("package p\nvar _ = "+c.in+"\n"), Options{Filename: "x.gox", Components: comps})
+		if err == nil || !strings.Contains(err.Error(), c.msg) {
+			t.Errorf("%s: got %v, want %q", c.in, err, c.msg)
+		}
+	}
+	sigs := map[string]Signature{}
+	CollectSignatures([]byte("package p\nfunc List[T any, U comparable](p ListProps[T, U]) gox.Node { return nil }\n"), sigs)
+	if !reflect.DeepEqual(sigs["List"], Signature{TypeParams: []string{"T", "U"}, PropsType: "ListProps[T, U]"}) {
+		t.Errorf("got %+v", sigs["List"])
 	}
 }
