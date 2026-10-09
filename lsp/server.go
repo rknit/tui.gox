@@ -382,6 +382,9 @@ func (s *server) handleGopls(m *msg) error {
 	if m.Method == "textDocument/publishDiagnostics" {
 		return s.goplsDiagnostics(params)
 	}
+	if m.Method == "window/showMessage" && s.ownGeneratedWarning(params) {
+		return nil
+	}
 	w := &walker{s: s, dir: toSrc}
 	m.Params = mustJSON(w.walk(params, ""))
 	return s.client.write(m)
@@ -429,6 +432,30 @@ func (s *server) goplsDiagnostics(params any) error {
 		return s.publish(src)
 	}
 	return s.notifyClient("textDocument/publishDiagnostics", map[string]any{"uri": pathToURI(src), "diagnostics": nonNil(diags)})
+}
+
+// ownGeneratedWarning reports whether a gopls message is its warning about
+// editing a generated file that is in fact an overlay goxls maintains for an
+// open .gox document.
+func (s *server) ownGeneratedWarning(params any) bool {
+	p, _ := params.(map[string]any)
+	msg, _ := p["message"].(string)
+	base, ok := strings.CutPrefix(msg, "Warning: editing ")
+	if !ok {
+		return false
+	}
+	base, ok = strings.CutSuffix(base, ", a generated file.")
+	if !ok {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for path := range s.docs {
+		if filepath.Base(transpile.OutputName(path)) == base {
+			return true
+		}
+	}
+	return false
 }
 
 func nonNil(v []any) []any {
