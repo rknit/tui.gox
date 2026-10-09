@@ -30,17 +30,28 @@ There are three parts:
 
 ```sh
 go get github.com/rknit/tui.gox
+go install github.com/rknit/tui.gox/cmd/goxc@latest
 ```
 
-Write a `.gox` file. It's ordinary Go plus XML expressions. Add a generate directive:
+Write `.gox` files (ordinary Go plus XML expressions), then compile them:
+
+```sh
+goxc ./...          # writes foo_gox.go next to every foo.gox
+goxc run .          # generate, then go run the package
+goxc -check ./...   # fail if generated files are stale (CI)
+```
+
+Without installing: `go run github.com/rknit/tui.gox/cmd/goxc ./...`.
+
+To use `go generate`, put the directive in a regular `.go` file, because `go generate` only
+reads `.go` files and a package that contains only `.gox` files isn't a Go package yet:
 
 ```go
+// gen.go
+package main
+
 //go:generate go run github.com/rknit/tui.gox/cmd/goxc .
 ```
-
-Then run `go generate ./...`, or `go run github.com/rknit/tui.gox/cmd/goxc ./...`.
-`goxc run ./examples/counter` generates the code and then runs the package. `goxc -check ./...`
-fails when a generated file is out of date, which is useful in CI.
 
 Generated files keep the `.gox` line numbers and start with a `//line` directive, so compiler
 errors point at the `.gox` source:
