@@ -41,6 +41,11 @@ goxc run .          # generate, then go run the package
 goxc -check ./...   # fail if generated files are stale (CI)
 ```
 
+You don't need to import the runtime in `.gox` files. `gox.UseState`, `gox.Node` and elements
+work as-is, and goxc adds the import. After writing files, goxc runs `go mod tidy` in the
+enclosing module, so `go.mod` picks up the runtime and any new imports. Use `-tidy=false` to
+skip this.
+
 Without installing: `go run github.com/rknit/tui.gox/cmd/goxc ./...`.
 
 To use `go generate`, put the directive in a regular `.go` file, because `go generate` only

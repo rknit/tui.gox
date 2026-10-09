@@ -202,3 +202,14 @@ func (r R) E() gox.Node { return nil }
 		}
 	}
 }
+
+func TestImplicitRuntimeImport(t *testing.T) {
+	out := gen(t, "package p\n\nfunc App() gox.Node {\n\tn, _ := gox.UseState(0)\n\treturn n\n}\n", nil)
+	if !strings.Contains(out, "package p; import gox \""+RuntimeImport+"\"\n") {
+		t.Errorf("import not inserted for gox.X usage:\n%s", out)
+	}
+	out = gen(t, "package p\n\nvar _ = x.gox.Y\n", nil)
+	if strings.Contains(out, "import") {
+		t.Errorf("import inserted for field selector:\n%s", out)
+	}
+}

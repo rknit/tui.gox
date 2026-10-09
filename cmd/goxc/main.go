@@ -6,6 +6,9 @@
 //	goxc run [package] [args] generate, then go run the package
 //
 // Packages are directories; a trailing /... recurses. Default is ".".
+// After writing files goxc runs `go mod tidy` in the enclosing module so new
+// imports (including the gox runtime) are added to go.mod; disable with
+// -tidy=false.
 // Typical use is a go:generate directive:
 //
 //	//go:generate go run github.com/rknit/tui.gox/cmd/goxc .
@@ -35,6 +38,7 @@ func main() {
 	}
 	check := flag.Bool("check", false, "report files whose generated output is stale, without writing")
 	verbose := flag.Bool("v", false, "print generated files")
+	tidy := flag.Bool("tidy", true, "run go mod tidy after generating so new imports are added to go.mod")
 	flag.Parse()
 	args := flag.Args()
 
@@ -44,7 +48,7 @@ func main() {
 		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 			pkg, rest = rest[0], rest[1:]
 		}
-		if err := generate([]string{pkg}, false, *verbose); err != nil {
+		if err := generate([]string{pkg}, false, *verbose, *tidy); err != nil {
 			fail(err)
 		}
 		cmd := exec.Command("go", append([]string{"run", pkg}, rest...)...)
@@ -62,7 +66,7 @@ func main() {
 	if len(args) == 0 {
 		args = []string{"."}
 	}
-	if err := generate(args, *check, *verbose); err != nil {
+	if err := generate(args, *check, *verbose, *tidy); err != nil {
 		fail(err)
 	}
 }
@@ -72,20 +76,39 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-func generate(patterns []string, check, verbose bool) error {
+func generate(patterns []string, check, verbose, tidy bool) error {
 	dirs, err := expand(patterns)
 	if err != nil {
 		return err
 	}
 	var errs []error
 	stale := false
+	modules := map[string]bool{} // module root -> needs tidy
 	for _, d := range dirs {
-		s, err := generateDir(d, check, verbose)
+		s, wrote, err := generateDir(d, check, verbose)
 		errs = append(errs, err)
 		stale = stale || s
+		if root := moduleRoot(d); root != "" {
+			modules[root] = modules[root] || wrote
+		}
 	}
 	if err := errors.Join(errs...); err != nil {
 		return err
+	}
+	if tidy && !check {
+		for root, wrote := range modules {
+			if !wrote && requiresRuntime(root) {
+				continue
+			}
+			if verbose {
+				fmt.Printf("go mod tidy (%s)\n", root)
+			}
+			cmd := exec.Command("go", "mod", "tidy")
+			cmd.Dir = root
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("goxc: go mod tidy in %s failed: %v\n%s", root, err, out)
+			}
+		}
 	}
 	if check && stale {
 		return errors.New("goxc: generated files are stale; run goxc")
@@ -144,10 +167,37 @@ func outputName(path string) string {
 	return base + "_gox.go"
 }
 
-func generateDir(dir string, check, verbose bool) (stale bool, err error) {
+// moduleRoot returns the directory of the go.mod governing dir, or "".
+func moduleRoot(dir string) string {
+	d, err := filepath.Abs(dir)
+	if err != nil {
+		return ""
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(d, "go.mod")); err == nil {
+			return d
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return ""
+		}
+		d = parent
+	}
+}
+
+// requiresRuntime reports whether the module's go.mod already provides the
+// gox runtime (it requires it, or is the runtime module itself).
+func requiresRuntime(root string) bool {
+	b, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	return err == nil && bytes.Contains(b, []byte(runtimeModule))
+}
+
+const runtimeModule = "github.com/rknit/tui.gox"
+
+func generateDir(dir string, check, verbose bool) (stale, wrote bool, err error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	var goxFiles []string
 	sources := map[string][]byte{}
@@ -160,14 +210,14 @@ func generateDir(dir string, check, verbose bool) (stale bool, err error) {
 		case strings.HasSuffix(name, ".gox"):
 			src, err := os.ReadFile(path)
 			if err != nil {
-				return false, err
+				return false, false, err
 			}
 			goxFiles = append(goxFiles, path)
 			sources[path] = src
 		case strings.HasSuffix(name, ".go"):
 			src, err := os.ReadFile(path)
 			if err != nil {
-				return false, err
+				return false, false, err
 			}
 			if !bytes.HasPrefix(src, []byte(generatedMarker)) {
 				transpile.CollectSignatures(src, sigs)
@@ -175,14 +225,14 @@ func generateDir(dir string, check, verbose bool) (stale bool, err error) {
 		}
 	}
 	if len(goxFiles) == 0 {
-		return false, nil
+		return false, false, nil
 	}
 
 	// Pass 1: collect component signatures declared in .gox files.
 	for _, path := range goxFiles {
 		out, err := transpile.Transpile(sources[path], transpile.Options{Filename: path})
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 		transpile.CollectSignatures(out, sigs)
 	}
@@ -209,9 +259,10 @@ func generateDir(dir string, check, verbose bool) (stale bool, err error) {
 			errs = append(errs, err)
 			continue
 		}
+		wrote = true
 		if verbose {
 			fmt.Println(target)
 		}
 	}
-	return stale, errors.Join(errs...)
+	return stale, wrote, errors.Join(errs...)
 }

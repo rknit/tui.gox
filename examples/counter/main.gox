@@ -5,8 +5,6 @@ package main
 import (
 	"fmt"
 	"os"
-
-	"github.com/rknit/tui.gox/gox"
 )
 
 type CounterProps struct {

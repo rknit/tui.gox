@@ -1,6 +1,9 @@
 // Package transpile converts .gox source (Go with embedded XML elements, in
 // the spirit of TSX) into plain Go source that targets the gox runtime.
 //
+// The runtime package is imported automatically as "gox" when a file uses
+// elements or refers to gox.X and does not import it itself.
+//
 // Element rules:
 //
 //	<box ...>          lowercase tag  -> gox.C(gox.Box, gox.BoxProps{...})
@@ -245,6 +248,10 @@ func (t *transpiler) goCode(pos int, inBrace bool) string {
 			word := string(src[pos:end])
 			out.WriteString(word)
 			pos = end
+			start := pos - len(word)
+			if word == t.rt && pos < len(src) && src[pos] == '.' && (start == 0 || src[start-1] != '.') {
+				t.used = true // explicit gox.X reference: import is implied
+			}
 			if goKeywords[word] && !operandKeywords[word] {
 				prev = tkOther
 			} else {

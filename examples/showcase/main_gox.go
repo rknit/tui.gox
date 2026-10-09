@@ -3,7 +3,7 @@
 //line main.gox:1
 //go:generate go run github.com/rknit/tui.gox/cmd/goxc .
 
-package main
+package main; import gox "github.com/rknit/tui.gox/gox"
 
 import (
 	"fmt"
@@ -12,7 +12,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rknit/tui.gox/gox"
 )
 
 // Panel is a reusable bordered section that takes children.

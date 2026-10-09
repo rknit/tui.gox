@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/rknit/tui.gox/gox"
 )
 
 type Todo struct {

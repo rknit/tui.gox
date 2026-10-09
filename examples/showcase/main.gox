@@ -9,7 +9,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rknit/tui.gox/gox"
 )
 
 // Panel is a reusable bordered section that takes children.

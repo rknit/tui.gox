@@ -3,13 +3,11 @@
 //line main.gox:1
 //go:generate go run github.com/rknit/tui.gox/cmd/goxc .
 
-package main
+package main; import gox "github.com/rknit/tui.gox/gox"
 
 import (
 	"fmt"
 	"os"
-
-	"github.com/rknit/tui.gox/gox"
 )
 
 type CounterProps struct {
