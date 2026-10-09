@@ -12,6 +12,27 @@ module.exports = grammar(go, {
   name: 'gox',
 
   rules: {
+    // node Card[T](title string, item T) { ... }: a component whose
+    // parameters are its props.
+    _top_level_declaration: ($, previous) => choice(previous, $.node_declaration),
+
+    node_declaration: $ => seq(
+      'node',
+      field('name', $.identifier),
+      field('type_parameters', optional(choice($.type_parameter_list, $.node_type_parameters))),
+      field('parameters', $.parameter_list),
+      field('body', $.block),
+    ),
+
+    // [T] and [K, V]: type parameters without constraints.
+    node_type_parameters: $ => seq(
+      '[',
+      field('name', $.identifier),
+      repeat(seq(',', field('name', $.identifier))),
+      optional(','),
+      ']',
+    ),
+
     // Elements are operands: they can appear wherever an expression can.
     _expression: ($, previous) => choice(
       previous,

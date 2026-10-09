@@ -107,6 +107,7 @@ go install github.com/rknit/tui.gox/cmd/goxls@main
 | `<>a{b}</>` | `gox.F("a", b)` |
 | `<box {...p.Box} padding={1} />` | `gox.C(gox.Box, func() (v gox.BoxProps) { v = (p.Box); v.Padding = 1; return }())` |
 | `<List[Item] items={xs} />` | `gox.C(List[Item], ListProps[Item]{Items: xs})` |
+| `node Card(title string) { … }` | `func Card(p CardProps) gox.Node { … }` plus `type CardProps struct { Title string }` |
 
 - **Built-in tags** (`box`, `text`, `input`, …) map to the `gox` package (`box` → `gox.Box`/`gox.BoxProps`).
 - **Any other tag** is your own component, lowercase (`<app/>`) or capitalized (`<App/>`).
@@ -139,6 +140,39 @@ go install github.com/rknit/tui.gox/cmd/goxls@main
 
 A component is a function `func(Props) gox.Node` (or `func() gox.Node`). Every Bubble Tea
 concept can also be used directly from Go without the XML syntax.
+
+### Props as parameters
+
+In `.gox` files, a top-level `node` declaration lists the props as ordinary parameters:
+
+```go
+// Card shows a title.
+node Card[T](title string, item T, children gox.Node) {
+	return <box title={title}>{children}</box>
+}
+
+node App() {
+	return <Card[int] title="x" item={1}>hi</Card>
+}
+```
+
+goxc turns `node Card[T](…)` into a props struct named `<Name>Props`. Each parameter becomes a
+field with its first letter capitalized (`title` → `Title`). goxc also declares the component
+`func Card[T any](CardProps[T]) gox.Node`, whose body sees the parameters as variables:
+
+```go
+type CardProps[T any] struct { Title string; Item T; Children gox.Node }
+```
+
+- **Usage:** attributes match parameter names, as with any props struct. `CardProps` can be used
+  from Go and other packages.
+- **Type parameters:** `[T]` and `[K, V]` without constraints mean `any`. Constraints
+  (`[K comparable, V any]`) are kept as written.
+- **No parameters:** `node App() {` is `func App() gox.Node {`.
+- **Restrictions:** a `node` has no result type and its parameters must be named, not `_`, and not
+  variadic.
+- **Identifiers:** `node` is only special at the start of a top-level declaration. It can still be
+  used as an identifier.
 
 ### Hooks
 

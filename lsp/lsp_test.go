@@ -190,12 +190,14 @@ func App() gox.Node {
 func main() { gox.Run(<App />) }
 `
 
-func setupModule(t *testing.T) string {
+func setupModule(t *testing.T) string { return setupModuleWith(t, appSrc) }
+
+func setupModuleWith(t *testing.T, src string) string {
 	t.Helper()
 	dir := t.TempDir()
 	gomod := fmt.Sprintf("module example.com/app\n\ngo 1.24\n\nrequire github.com/rknit/tui.gox v0.0.0\n\nreplace github.com/rknit/tui.gox => %s\n", repoRoot())
 	must(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o644))
-	must(t, os.WriteFile(filepath.Join(dir, "main.gox"), []byte(appSrc), 0o644))
+	must(t, os.WriteFile(filepath.Join(dir, "main.gox"), []byte(src), 0o644))
 	// Resolve dependencies from the module cache.
 	gen := exec.Command("go", "run", filepath.Join(repoRoot(), "cmd", "goxc"), ".")
 	gen.Dir = dir
@@ -453,4 +455,86 @@ func TestAutoImportCompletion(t *testing.T) {
 			t.Errorf("case %d: got\n%s\nwant\n%s", i, got, want)
 		}
 	}
+}
+
+const nodeSrc = `package main
+
+// Card shows a title.
+node Card[T](title string, item T, children gox.Node) {
+	return <box padding={1}>
+		<text bold>{title}</text>
+		{children}
+	</box>
+}
+
+node App() {
+	return <Card[int] title="x" item={missing}>hi</Card>
+}
+
+func main() { gox.Run(<App />) }
+`
+
+func TestGoxlsNode(t *testing.T) {
+	goplsPath(t)
+	dir := setupModuleWith(t, nodeSrc)
+	c := startClient(t, dir)
+	uri := pathToURI(filepath.Join(dir, "main.gox"))
+	c.notify("textDocument/didOpen", map[string]any{"textDocument": map[string]any{"uri": uri, "languageId": "gox", "version": 1, "text": nodeSrc}})
+
+	diags := c.waitDiags(uri, func(d []any) bool { return len(d) > 0 })
+	start := diags[0].(map[string]any)["range"].(map[string]any)["start"].(map[string]any)
+	if want := pos(nodeSrc, "missing", 0); start["line"].(float64) != float64(want["line"].(int)) || start["character"].(float64) != float64(want["character"].(int)) {
+		t.Errorf("diagnostic at %v, want %v", start, want)
+	}
+
+	t.Run("hover attribute", func(t *testing.T) {
+		res := c.call("textDocument/hover", map[string]any{"textDocument": map[string]any{"uri": uri}, "position": pos(nodeSrc, "title=", 1)})
+		if !strings.Contains(string(res), "Title string") {
+			t.Errorf("hover: %s", res)
+		}
+	})
+
+	t.Run("hover tag shows doc", func(t *testing.T) {
+		res := c.call("textDocument/hover", map[string]any{"textDocument": map[string]any{"uri": uri}, "position": pos(nodeSrc, "Card[int]", 1)})
+		if !strings.Contains(string(res), "Card shows a title") {
+			t.Errorf("hover: %s", res)
+		}
+	})
+
+	t.Run("definition of tag", func(t *testing.T) {
+		res := c.call("textDocument/definition", map[string]any{"textDocument": map[string]any{"uri": uri}, "position": pos(nodeSrc, "Card[int]", 1)})
+		want := pos(nodeSrc, "Card[T]", 0)
+		if !strings.Contains(string(res), fmt.Sprintf(`"start":{"character":%d,"line":%d}`, want["character"], want["line"])) {
+			t.Errorf("definition: %s (want %v)", res, want)
+		}
+	})
+
+	t.Run("definition of attribute", func(t *testing.T) {
+		res := c.call("textDocument/definition", map[string]any{"textDocument": map[string]any{"uri": uri}, "position": pos(nodeSrc, "title=", 1)})
+		want := pos(nodeSrc, "title string", 0)
+		if !strings.Contains(string(res), fmt.Sprintf(`"start":{"character":%d,"line":%d}`, want["character"], want["line"])) {
+			t.Errorf("definition: %s (want %v)", res, want)
+		}
+	})
+
+	t.Run("attribute completion", func(t *testing.T) {
+		res := c.call("textDocument/completion", map[string]any{"textDocument": map[string]any{"uri": uri}, "position": pos(nodeSrc, " item=", 1)})
+		if s := string(res); !strings.Contains(s, `"label":"item"`) || strings.Contains(s, `"label":"title"`) {
+			t.Errorf("attribute completion: %s", s)
+		}
+	})
+
+	t.Run("rename parameter", func(t *testing.T) {
+		res := c.call("textDocument/rename", map[string]any{"textDocument": map[string]any{"uri": uri}, "position": pos(nodeSrc, "title}", 0), "newName": "heading"})
+		s := string(res)
+		if strings.Contains(s, "_gox.go") || strings.Count(s, `"newText":"heading"`) != 2 {
+			t.Fatalf("rename: %s", s)
+		}
+		for _, needle := range []string{"title string", "title}"} {
+			p := pos(nodeSrc, needle, 0)
+			if !strings.Contains(s, fmt.Sprintf(`"start":{"character":%d,"line":%d}`, p["character"], p["line"])) {
+				t.Errorf("rename edit for %q missing: %s", needle, s)
+			}
+		}
+	})
 }

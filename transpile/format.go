@@ -40,7 +40,8 @@ func Format(src []byte) (out []byte, err error) {
 	if err != nil {
 		return nil, err
 	}
-	out = []byte(strings.Join(lines, "\n"))
+	text := strings.ReplaceAll(strings.Join(lines, "\n"), "func "+fmtNode, "node ")
+	out = []byte(strings.ReplaceAll(text, " "+fmtAny, ""))
 	if !bytes.HasSuffix(out, []byte("\n")) {
 		out = append(out, '\n')
 	}
@@ -101,6 +102,12 @@ func (f *fmtParser) fail(pos int, format string, args ...any) {
 	t.fail(pos, format, args...)
 }
 
+// Stand-ins that make node declarations valid Go for gofmt.
+const (
+	fmtNode = "_goxnode_"
+	fmtAny  = "_goxany_"
+)
+
 func placeholder(i int) string { return "_gox" + strconv.Itoa(i) + "_" }
 
 var placeholderRE = regexp.MustCompile(`_gox(\d+)_`)
@@ -111,7 +118,7 @@ func (f *fmtParser) goCode(pos int, inBrace bool) *goFrag {
 	frag := &goFrag{}
 	var out strings.Builder
 	src := f.src
-	depth := 0
+	depth, parens := 0, 0
 	prev := tkNone
 	start := pos
 	for pos < len(src) {
@@ -148,6 +155,8 @@ func (f *fmtParser) goCode(pos int, inBrace bool) *goFrag {
 		case c == '{' || c == '(' || c == '[':
 			if c == '{' {
 				depth++
+			} else {
+				parens++
 			}
 			out.WriteByte(c)
 			pos++
@@ -163,6 +172,7 @@ func (f *fmtParser) goCode(pos int, inBrace bool) *goFrag {
 			pos++
 			prev = tkOperand
 		case c == ')' || c == ']':
+			parens--
 			out.WriteByte(c)
 			pos++
 			prev = tkOperand
@@ -175,6 +185,23 @@ func (f *fmtParser) goCode(pos int, inBrace bool) *goFrag {
 		case isIdentStart(src, pos):
 			end := identEnd(src, pos)
 			word := string(src[pos:end])
+			if word == "node" && !inBrace && depth == 0 && parens == 0 && prev == tkNone {
+				if d := t.nodeDecl(pos); d != nil {
+					// gofmt sees `func _goxnode_Name[T _goxany_](`; Format
+					// turns it back into `node Name[T](`.
+					out.WriteString("func " + fmtNode + d.name)
+					pos = d.params
+					if d.tparams >= 0 {
+						tp := d.typeParams(src)
+						if bareTypeParams(tp) {
+							tp += " " + fmtAny
+						}
+						out.WriteString("[" + tp + "]")
+					}
+					prev = tkOther
+					continue
+				}
+			}
 			out.WriteString(word)
 			pos = end
 			if goKeywords[word] && !operandKeywords[word] {
