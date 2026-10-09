@@ -227,3 +227,15 @@ func TestLowercaseComponents(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+func TestBuiltinCollision(t *testing.T) {
+	comps := map[string]Signature{"button": {PropsType: "buttonProps"}}
+	_, err := Transpile([]byte("package p\nvar _ = <button />\n"), Options{Filename: "x.gox", Components: comps})
+	if err == nil || !strings.Contains(err.Error(), "x.gox:2:9: <button> is ambiguous") {
+		t.Errorf("got %v", err)
+	}
+	// Declaring the func without using the tag is fine.
+	if got := expr(t, `<box />`, comps); got != `gox.C(gox.Box, gox.BoxProps{})` {
+		t.Errorf("got %s", got)
+	}
+}

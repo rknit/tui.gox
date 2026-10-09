@@ -534,6 +534,9 @@ var Intrinsics = map[string]bool{
 
 func (t *transpiler) resolve(name string, pos int) (fn, props string, noProps bool) {
 	if Intrinsics[name] {
+		if _, local := t.opts.Components[name]; local {
+			t.fail(pos, "<%s> is ambiguous: it is a built-in element and component func %s is declared in this package; rename the component", name, name)
+		}
 		f := fieldName(name)
 		return t.rt + "." + f, t.rt + "." + f + "Props", false
 	}

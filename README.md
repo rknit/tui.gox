@@ -78,7 +78,8 @@ main.gox:8: cannot use "oops" (untyped string constant) as int value in struct l
 
 - **Built-in tags** (`box`, `text`, `input`, …) map to the `gox` package (`box` → `gox.Box`/`gox.BoxProps`).
 - **Any other tag** is your own component, lowercase (`<app/>`) or capitalized (`<App/>`).
-  Built-in names take precedence. An unknown lowercase tag is a goxc error. The props type is the declared parameter type
+  Using a built-in tag while declaring a component of the same name, or using an unknown
+  lowercase tag, is a goxc error. The props type is the declared parameter type
   when goxc finds the function in the same package. Otherwise it follows the `<Name>Props`
   convention. Pointer props (`func C(p *Opts)`) and zero-argument components are supported.
 - **Attributes** become struct fields with the first letter capitalized (`onPress` → `OnPress`,
