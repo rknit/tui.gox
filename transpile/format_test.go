@@ -158,3 +158,9 @@ func TestClosingTag(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatSortsImports(t *testing.T) {
+	in := "package main\n\nimport (\n\t\"log\"\n\t\"fmt\"\n)\n\nfunc main() { fmt.Println(); log.Println(<box />) }\n"
+	want := "package main\n\nimport (\n\t\"fmt\"\n\t\"log\"\n)\n\nfunc main() { fmt.Println(); log.Println(<box />) }\n"
+	checkFormat(t, in, want)
+}

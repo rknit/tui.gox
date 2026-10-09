@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"go/ast"
 	"go/format"
+	"go/parser"
 	"go/scanner"
 	"go/token"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -720,8 +723,15 @@ func tokens(src []byte) []tok {
 	return res
 }
 
+// equalTokens reports whether Go sources a and b have the same tokens. Import
+// declarations are compared as sets of imports since gofmt sorts them.
 func equalTokens(a, b []byte) bool {
-	ta, tb := tokens(a), tokens(b)
+	ia, ra := splitImports(a)
+	ib, rb := splitImports(b)
+	if ia != ib {
+		return false
+	}
+	ta, tb := tokens(ra), tokens(rb)
 	if len(ta) != len(tb) {
 		return false
 	}
@@ -731,4 +741,31 @@ func equalTokens(a, b []byte) bool {
 		}
 	}
 	return true
+}
+
+// splitImports returns the package name and sorted imports of Go source src
+// as a key, and the source after the import declarations.
+func splitImports(src []byte) (string, []byte) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", src, parser.ImportsOnly)
+	if err != nil || f.Name == nil {
+		return "", src
+	}
+	end := fset.Position(f.Name.End()).Offset
+	var specs []string
+	for _, d := range f.Decls {
+		if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.IMPORT {
+			end = max(end, fset.Position(g.End()).Offset)
+		}
+	}
+	for _, imp := range f.Imports {
+		path, _ := strconv.Unquote(imp.Path.Value)
+		name := ""
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		specs = append(specs, name+" "+strconv.Quote(path))
+	}
+	sort.Strings(specs)
+	return f.Name.Name + "\n" + strings.Join(specs, "\n"), src[end:]
 }
