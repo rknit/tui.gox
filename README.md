@@ -23,6 +23,7 @@ There are three parts:
 | Part | Path | Purpose |
 |---|---|---|
 | Compiler | `cmd/goxc`, `transpile` | Turns `foo.gox` into `foo_gox.go` |
+| Language server | `cmd/goxls`, `lsp`, `editors/` | gopls-backed LSP for `.gox`; Neovim plugin |
 | Runtime | `gox` | Components, hooks, focus, layout, Bubble Tea `tea.Model` |
 | Test driver | `gox/goxtest` | Renders a tree and sends keys without a terminal |
 
@@ -63,6 +64,23 @@ errors point at the `.gox` source:
 
 ```
 main.gox:8: cannot use "oops" (untyped string constant) as int value in struct literal
+```
+
+## Editor support
+
+`goxls` is a language server for `.gox` files built on top of gopls. It provides:
+
+- Diagnostics at `.gox` positions.
+- Hover, go-to-definition, references and rename, including on tag and attribute names.
+- Go completion, plus completion of tag and attribute names.
+- Generate on save.
+
+It works with any LSP client. A Neovim plugin (filetype, syntax highlighting, LSP setup) and
+setups for Helix and Emacs are in [editors/](editors/README.md).
+
+```sh
+go install golang.org/x/tools/gopls@latest
+go install github.com/rknit/tui.gox/cmd/goxls@main
 ```
 
 ## Syntax

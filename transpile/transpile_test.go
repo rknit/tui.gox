@@ -296,3 +296,56 @@ func TestGenericComponents(t *testing.T) {
 		t.Errorf("got %+v", sigs["List"])
 	}
 }
+
+func TestSourceMap(t *testing.T) {
+	src := `package p
+
+func App(name string) gox.Node {
+	return <box padding={1}>
+		<Card title="hi" count={len(name)}>Hello {name}</Card>
+	</box>
+}
+`
+	out, sm, err := TranspileMap([]byte(src), Options{Filename: "x.gox"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := string(out)
+	// Each probe: source substring -> expected generated substring at the
+	// mapped offset.
+	probes := []struct{ src, gen string }{
+		{"App(name", "App(name"},
+		{"box padding", "Box, "},
+		{"padding={1}", "Padding: 1"},
+		{"1}>", "1, "},
+		{"Card title", "Card, "},
+		{"title=", "Title: "},
+		{`"hi"`, `"hi"`},
+		{"len(name)", "len(name)"},
+		{"name}</Card>", "name)"},
+		{"Card>\n", "Card, "}, // closing tag maps to the component reference
+	}
+	for _, p := range probes {
+		off := strings.Index(src, p.src)
+		if p.src == "Card>\n" {
+			off = strings.LastIndex(src, p.src)
+		}
+		d, ok := sm.ToGenerated(off)
+		if !ok || !strings.HasPrefix(gen[d:], p.gen) {
+			t.Errorf("%q -> %q, want prefix %q", p.src, gen[d:min(d+20, len(gen))], p.gen)
+			continue
+		}
+		if p.src == "Card>\n" {
+			continue
+		}
+		if back, ok := sm.ToSource(d); !ok || back != off {
+			t.Errorf("%q: round trip %d -> %d -> %d", p.src, off, d, back)
+		}
+	}
+	// Import insertion must not disturb mapping after it.
+	off := strings.Index(src, "string)")
+	d, _ := sm.ToGenerated(off)
+	if !strings.HasPrefix(gen[d:], "string)") {
+		t.Errorf("after import: %q", gen[d:d+10])
+	}
+}
