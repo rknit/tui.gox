@@ -5,6 +5,7 @@
 --     filetypes = { "gox" },
 --     generate_on_save = true,      -- write foo_gox.go when foo.gox is saved
 --     treesitter = true,            -- build and use the bundled tree-sitter parser
+--     auto_close_tags = true,       -- insert </tag> after typing <tag>, complete "</"
 --     settings = {},                -- forwarded to goxls' gopls, e.g. { gopls = { gofumpt = true } }
 --     on_attach = nil,
 --     capabilities = nil,
@@ -102,6 +103,96 @@ local function setup_treesitter()
   end
 end
 
+local expand_between_tags
+
+-- Automatic tag closing, computed by goxls ("gox/closingTag").
+local function closing_tag(buf)
+  local client = vim.lsp.get_clients({ bufnr = buf, name = "goxls" })[1]
+  if not client then
+    return
+  end
+  local win = vim.api.nvim_get_current_win()
+  local params = vim.lsp.util.make_position_params(win, client.offset_encoding)
+  local res
+  if vim.fn.has("nvim-0.11") == 1 then
+    res = client:request_sync("gox/closingTag", params, 500, buf)
+  else
+    res = client.request_sync("gox/closingTag", params, 500, buf)
+  end
+  local text = res and res.result and res.result.text
+  if not text or text == "" then
+    return
+  end
+  local row, col = unpack(vim.api.nvim_win_get_cursor(win))
+  vim.api.nvim_buf_set_text(buf, row - 1, col, row - 1, col, { text })
+  if not vim.startswith(text, "</") then
+    -- Completed a "</" being typed: move past it.
+    vim.api.nvim_win_set_cursor(win, { row, col + #text })
+  end
+end
+
+-- Enter between "<tag>" and "</tag>" opens an indented line between them.
+expand_between_tags = function(buf)
+  local win = vim.api.nvim_get_current_win()
+  local row, col = unpack(vim.api.nvim_win_get_cursor(win))
+  if row < 2 then
+    return
+  end
+  local line = vim.api.nvim_get_current_line()
+  local prev = vim.api.nvim_buf_get_lines(buf, row - 2, row - 1, false)[1]
+  local before, after = line:sub(1, col), line:sub(col + 1)
+  if not before:match("^%s*$") or not after:match("^</") then
+    return
+  end
+  if not prev:match("<[%w_.%[%]]*[^/<>]*>%s*$") and not prev:match("<>%s*$") then
+    return
+  end
+  local indent = prev:match("^%s*")
+  local unit = vim.bo[buf].expandtab and string.rep(" ", vim.fn.shiftwidth()) or "\t"
+  vim.api.nvim_buf_set_lines(buf, row - 1, row, false, { indent .. unit, indent .. after })
+  vim.api.nvim_win_set_cursor(win, { row, #indent + #unit })
+end
+
+local function setup_autoclose()
+  vim.api.nvim_create_autocmd("FileType", {
+    pattern = "gox",
+    group = vim.api.nvim_create_augroup("goxls_autoclose", { clear = true }),
+    callback = function(args)
+      local buf = args.buf
+      local pending = false
+      vim.api.nvim_create_autocmd("InsertCharPre", {
+        buffer = buf,
+        group = "goxls_autoclose",
+        callback = function()
+          local ch = vim.v.char
+          if ch == ">" then
+            pending = true
+          elseif ch == "/" then
+            local col = vim.api.nvim_win_get_cursor(0)[2]
+            pending = col > 0 and vim.api.nvim_get_current_line():sub(col, col) == "<"
+          end
+        end,
+      })
+      local lines = vim.api.nvim_buf_line_count(buf)
+      vim.api.nvim_create_autocmd("TextChangedI", {
+        buffer = buf,
+        group = "goxls_autoclose",
+        callback = function()
+          local count = vim.api.nvim_buf_line_count(buf)
+          local newline = count == lines + 1
+          lines = count
+          if pending then
+            pending = false
+            closing_tag(buf)
+          elseif newline then
+            expand_between_tags(buf)
+          end
+        end,
+      })
+    end,
+  })
+end
+
 function M.config(opts)
   opts = opts or {}
   local generate = opts.generate_on_save
@@ -128,6 +219,9 @@ function M.setup(opts)
   end
   if opts.treesitter ~= false then
     setup_treesitter()
+  end
+  if opts.auto_close_tags ~= false then
+    setup_autoclose()
   end
 
   local cfg = M.config(opts)

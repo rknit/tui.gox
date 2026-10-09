@@ -84,6 +84,7 @@ main.gox:8: cannot use "oops" (untyped string constant) as int value in struct l
 - Hover, go-to-definition, references and rename, including on tag and attribute names.
 - Go completion, plus completion of tag and attribute names.
 - Formatting (same as `goxc fmt`).
+- Auto-closing tags.
 - Generate on save.
 
 It works with any LSP client. A Neovim plugin (filetype, tree-sitter highlighting, LSP setup), a tree-sitter grammar, and

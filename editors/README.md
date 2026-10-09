@@ -28,6 +28,10 @@ go install github.com/rknit/tui.gox/cmd/goxc@main   # for `goxc fmt` (optional)
   - Tag names after `<`: built-ins plus the package's components.
   - Attribute names inside an opening tag, taken from the props struct, skipping those already
     set.
+- **Auto-closing tags:** the custom request `gox/closingTag` (`{textDocument, position}` →
+  `{text}` or `null`) returns the text to insert after typing `>`, which gives `</box>` once
+  `<box ...>` is complete, or after typing `</`, which completes the innermost open tag. The
+  Neovim plugin uses it automatically. Other editors can call it from a keystroke hook.
 - **Generate on save:** `foo_gox.go` is rewritten when `foo.gox` is saved, so `go build` and
   `go run` work without running `goxc`. Set `generateOnSave: false` to turn this off.
 
@@ -73,12 +77,21 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim) or LazyVim:
       -- cmd = { "goxls", "-gopls", "/path/to/gopls" },
       -- generate_on_save = true,
       -- treesitter = true,
+      -- auto_close_tags = true,
       -- settings = { gopls = { gofumpt = true, staticcheck = true } },
       -- capabilities = require("blink.cmp").get_lsp_capabilities(),
     })
   end,
 }
 ```
+
+With `auto_close_tags` (on by default):
+
+- Typing `>` to finish `<box ...>` inserts `</box>` after the cursor, unless the document is
+  already balanced (for example, when you edit an existing tag).
+- Typing `</` completes the innermost open tag.
+- Pressing Enter between `<box>` and `</box>` opens an indented line. `<CR>` isn't remapped,
+  so completion plugins keep it.
 
 Formatting works through `vim.lsp.buf.format()`. With conform.nvim (LazyVim's formatter), either
 let it fall back to the LSP, or run `goxc fmt` directly:

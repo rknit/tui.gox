@@ -128,3 +128,33 @@ func TestSameProgram(t *testing.T) {
 		t.Errorf("layout-only change rejected: %v", err)
 	}
 }
+
+func TestClosingTag(t *testing.T) {
+	cases := []struct {
+		src  string // | marks the cursor
+		want string
+	}{
+		{"var _ = <box padding={1}>|", "</box>"},
+		{"var _ = <box padding={1}>|\nvar y = 1", "</box>"},
+		{"var _ = <List[int] items={xs}>|", "</List>"},
+		{"var _ = <ui.Card>|", "</ui.Card>"},
+		{"var _ = <>|", "</>"},
+		{"var _ = <box />|", ""},
+		{"var _ = a >|", ""},
+		{"var _ = <box a={x >|", ""},
+		{"var _ = <box><text>|</box>", "</text>"},
+		{"var _ = <box>|</box>", ""},              // already balanced
+		{"var _ = <box>|</box>\nvar y = <x>", ""}, // closing tag already follows
+		{"var _ = <box><text>hi</text></|", "box>"},
+		{"var _ = <box><text>hi</|", "text>"},
+		{"var _ = <box></|box>", ""},
+		{"var _ = a </|", ""},
+	}
+	for _, c := range cases {
+		off := strings.Index(c.src, "|")
+		src := "package p\n" + c.src[:off] + c.src[off+1:]
+		if got := ClosingTag([]byte(src), off+len("package p\n")); got != c.want {
+			t.Errorf("%q: got %q, want %q", c.src, got, c.want)
+		}
+	}
+}

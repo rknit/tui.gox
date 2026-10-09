@@ -116,7 +116,8 @@ func (c *conn) read() (*msg, error) {
 }
 
 func (c *conn) write(m *msg) error {
-	body, err := json.Marshal(m)
+	body, err := m.MarshalJSON() // json.Marshal would re-escape '<' and '>'
+
 	if err != nil {
 		return err
 	}
@@ -130,9 +131,11 @@ func (c *conn) write(m *msg) error {
 }
 
 func mustJSON(v any) json.RawMessage {
-	b, err := json.Marshal(v)
-	if err != nil {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
 		panic(err)
 	}
-	return b
+	return bytes.TrimRight(b.Bytes(), "\n")
 }
