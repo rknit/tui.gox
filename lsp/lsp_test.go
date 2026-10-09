@@ -382,3 +382,56 @@ func TestCompletionContext(t *testing.T) {
 		}
 	}
 }
+
+func TestAutoImportCompletion(t *testing.T) {
+	goplsPath(t)
+	dir := setupModule(t)
+	c := startClient(t, dir)
+	for i, tc := range []struct{ imports, want string }{
+		{"import \"log\"\n", "import (\n\t\"log\"\n\t\"fmt\"\n)\n"},
+		{"", "\n\nimport \"fmt\""},
+		{"import (\n\t\"log\"\n\t\"os\"\n)\n", "import (\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n)\n"},
+	} {
+		head := "package main"
+		if tc.imports != "" {
+			head += "\n\n" + tc.imports
+		}
+		body := "\nfunc App() gox.Node {\n\tfm\n\treturn <box />\n}\n\nfunc main() { gox.Run(<App />) }\n"
+		src := head + body
+		name := fmt.Sprintf("auto%d.gox", i)
+		must(t, os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644))
+		uri := pathToURI(filepath.Join(dir, name))
+		c.notify("textDocument/didOpen", map[string]any{"textDocument": map[string]any{"uri": uri, "languageId": "gox", "version": 1, "text": src}})
+		c.waitDiags(uri, func([]any) bool { return true })
+		res := c.call("textDocument/completion", map[string]any{"textDocument": map[string]any{"uri": uri}, "position": pos(src, "fm\n", 2)})
+		var list struct {
+			Items []struct {
+				Label     string `json:"label"`
+				TextEdits []struct {
+					Range struct {
+						Start, End struct{ Line, Character int }
+					} `json:"range"`
+					NewText string `json:"newText"`
+				} `json:"additionalTextEdits"`
+			} `json:"items"`
+		}
+		must(t, json.Unmarshal(res, &list))
+		var edits []textEdit
+		tx := newText(src)
+		for _, it := range list.Items {
+			if it.Label != "fmt" {
+				continue
+			}
+			for _, e := range it.TextEdits {
+				edits = append(edits, textEdit{tx.offset(e.Range.Start.Line, e.Range.Start.Character), tx.offset(e.Range.End.Line, e.Range.End.Character), e.NewText})
+			}
+		}
+		want := strings.Replace(src, head, "package main"+tc.want, 1)
+		if tc.imports != "" {
+			want = strings.Replace(src, tc.imports, tc.want, 1)
+		}
+		if got := applyEdits(src, edits); got != want {
+			t.Errorf("case %d: got\n%s\nwant\n%s", i, got, want)
+		}
+	}
+}
