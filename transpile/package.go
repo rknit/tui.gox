@@ -121,3 +121,57 @@ func PropsType(tag string, sigs map[string]Signature, rt string) (props string, 
 // FieldName returns the props field an attribute name refers to
 // (onPress -> OnPress, on-press -> OnPress).
 func FieldName(attr string) string { return fieldName(attr) }
+
+// ClosingTag returns the text to insert for automatic tag closing at offset
+// in src, or "" when nothing should be inserted.
+//
+// Just after typing '>' that completes an opening tag, it returns the
+// closing tag ("</box>"), unless the document is already balanced. Just
+// after typing "</", it returns the rest of the innermost open tag ("box>").
+func ClosingTag(src []byte, offset int) string {
+	if offset < 1 || offset > len(src) {
+		return ""
+	}
+	after := src[offset:]
+	switch {
+	case offset >= 2 && string(src[offset-2:offset]) == "</":
+		el := innermostOpen(src[:offset-2])
+		if el == nil {
+			return ""
+		}
+		text := el.name + ">"
+		if bytes.HasPrefix(after, []byte(text)) {
+			return ""
+		}
+		return text
+	case src[offset-1] == '>':
+		el := innermostOpen(src[:offset])
+		if el == nil || el.tagEnd != offset {
+			return ""
+		}
+		text := "</" + el.name + ">"
+		if bytes.HasPrefix(after, []byte(text)) {
+			return ""
+		}
+		if _, err := Transpile(src, Options{}); err == nil {
+			return "" // already balanced: editing an existing tag
+		}
+		return text
+	}
+	return ""
+}
+
+// innermostOpen returns the innermost element that src leaves unclosed.
+func innermostOpen(src []byte) (el *openElement) {
+	t := &transpiler{src: src, rt: "gox", opts: Options{Filename: "input.gox"}}
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(*Error); !ok {
+				panic(r)
+			}
+			el = t.open
+		}
+	}()
+	t.goCode(0, false)
+	return nil
+}

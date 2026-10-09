@@ -270,6 +270,24 @@ func (s *server) goxRequest(m *msg, uri string, params any) (any, bool) {
 	valid := d != nil && d.valid()
 	s.mu.Unlock()
 	switch m.Method {
+	case "gox/closingTag":
+		// Custom request: text to insert for automatic tag closing at the
+		// position just after a typed '>' or "</". Result: {"text": "..."}
+		// or null.
+		if d == nil {
+			return nil, true
+		}
+		p, _ := params.(map[string]any)
+		pos, _ := p["position"].(map[string]any)
+		line, _ := pos["line"].(float64)
+		char, _ := pos["character"].(float64)
+		s.mu.Lock()
+		src := d.src
+		s.mu.Unlock()
+		if text := transpile.ClosingTag([]byte(src.s), src.offset(int(line), int(char))); text != "" {
+			return map[string]any{"text": text}, true
+		}
+		return nil, true
 	case "textDocument/formatting":
 		if d == nil {
 			return nil, true

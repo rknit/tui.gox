@@ -175,6 +175,12 @@ type transpiler struct {
 	end     int // position after the last parsed construct
 	marks   []markSrc
 	aliases []alias
+	open    *openElement // innermost element left open at EOF
+}
+
+type openElement struct {
+	name   string // base tag name; "" for a fragment
+	tagEnd int    // offset after the opening tag
 }
 
 func (t *transpiler) fail(pos int, format string, args ...any) {
@@ -766,6 +772,9 @@ func (t *transpiler) children(pos int, name string) ([]child, int, int) {
 	open := pos
 	for {
 		if pos >= len(t.src) {
+			if t.open == nil {
+				t.open = &openElement{name: baseOf(name), tagEnd: open}
+			}
 			if name == "" {
 				t.fail(open, "unterminated fragment")
 			}

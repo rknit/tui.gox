@@ -276,6 +276,19 @@ func TestGoxls(t *testing.T) {
 		}
 	})
 
+	t.Run("closing tag", func(t *testing.T) {
+		typed := strings.Replace(appSrc, "<text bold>{p.Title}</text>", "<text bold>", 1)
+		c.notify("textDocument/didChange", map[string]any{"textDocument": map[string]any{"uri": uri, "version": 9}, "contentChanges": []any{map[string]any{"text": typed}}})
+		res := c.call("gox/closingTag", map[string]any{"textDocument": map[string]any{"uri": uri}, "position": pos(typed, "<text bold>", len("<text bold>"))})
+		if string(res) != `{"text":"</text>"}` {
+			t.Errorf("closingTag: %s", res)
+		}
+		res = c.call("gox/closingTag", map[string]any{"textDocument": map[string]any{"uri": uri}, "position": pos(typed, "<box padding", 4)})
+		if string(res) != "null" {
+			t.Errorf("closingTag mid-tag: %s", res)
+		}
+	})
+
 	t.Run("formatting", func(t *testing.T) {
 		messy := strings.Replace(appSrc, "<box padding={1}>", "<box   padding={ 1 }  >", 1)
 		c.notify("textDocument/didChange", map[string]any{"textDocument": map[string]any{"uri": uri, "version": 10}, "contentChanges": []any{map[string]any{"text": messy}}})
