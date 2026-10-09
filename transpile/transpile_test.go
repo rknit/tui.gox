@@ -213,3 +213,17 @@ func TestImplicitRuntimeImport(t *testing.T) {
 		t.Errorf("import inserted for field selector:\n%s", out)
 	}
 }
+
+func TestLowercaseComponents(t *testing.T) {
+	comps := map[string]Signature{"app": {NoProps: true}, "row": {PropsType: "rowProps"}}
+	if got := expr(t, `<app />`, comps); got != `gox.C0(app)` {
+		t.Errorf("got %s", got)
+	}
+	if got := expr(t, `<row a={1} />`, comps); got != `gox.C(row, rowProps{A: 1})` {
+		t.Errorf("got %s", got)
+	}
+	_, err := Transpile([]byte("package p\nvar _ = <nope />\n"), Options{Filename: "x.gox", Components: comps})
+	if err == nil || !strings.Contains(err.Error(), "x.gox:2:9: unknown element <nope>") {
+		t.Errorf("got %v", err)
+	}
+}

@@ -6,8 +6,9 @@
 //
 // Element rules:
 //
-//	<box ...>          lowercase tag  -> gox.C(gox.Box, gox.BoxProps{...})
-//	<Card ...>         capitalized    -> gox.C(Card, CardProps{...})
+//	<box ...>          built-in tag   -> gox.C(gox.Box, gox.BoxProps{...})
+//	<Card ...>         component      -> gox.C(Card, CardProps{...})
+//	<card ...>         lowercase local component (not a built-in) -> gox.C(card, cardProps{...})
 //	<ui.Card ...>      qualified      -> gox.C(ui.Card, ui.CardProps{...})
 //	<>...</>           fragment       -> gox.F(...)
 //	key={k}            special        -> gox.K(k, <element>)
@@ -476,7 +477,7 @@ func (t *transpiler) element(pos int, top bool) string {
 }
 
 func (t *transpiler) call(w *writer, name string, pos int, attrs []attr, children []child, end int) {
-	fn, props, noProps := t.resolve(name)
+	fn, props, noProps := t.resolve(name, pos)
 	if noProps {
 		if len(attrs) > 0 || len(children) > 0 {
 			t.fail(pos, "component %s takes no props", name)
@@ -522,10 +523,23 @@ func (t *transpiler) call(w *writer, name string, pos int, attrs []attr, childre
 }
 
 // resolve maps a tag name to the component function and its props type.
-func (t *transpiler) resolve(name string) (fn, props string, noProps bool) {
-	if !strings.Contains(name, ".") && unicode.IsLower(firstRune(name)) {
+// Intrinsics are the built-in lowercase elements provided by the runtime.
+// Other lowercase tags refer to components declared in the same package.
+var Intrinsics = map[string]bool{
+	"box": true, "text": true, "span": true, "br": true, "spacer": true,
+	"divider": true, "hr": true, "show": true, "input": true, "button": true,
+	"checkbox": true, "select": true, "spinner": true, "progress": true,
+	"model": true,
+}
+
+func (t *transpiler) resolve(name string, pos int) (fn, props string, noProps bool) {
+	if Intrinsics[name] {
 		f := fieldName(name)
 		return t.rt + "." + f, t.rt + "." + f + "Props", false
+	}
+	_, known := t.opts.Components[name]
+	if !known && t.opts.Components != nil && !strings.Contains(name, ".") && unicode.IsLower(firstRune(name)) {
+		t.fail(pos, "unknown element <%s>: not a built-in and no component func %s is declared in this package", name, name)
 	}
 	if sig, ok := t.opts.Components[name]; ok {
 		if sig.NoProps {
